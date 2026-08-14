@@ -20,6 +20,7 @@ const CHARACTERS = [
         "air_mult": 1.10,
         "swing_mult": 1.10,
         "zip_mult": 1.00,
+        "combat_mult": 0.86,
         "defense_mult": 0.88
     },
     {
@@ -41,6 +42,7 @@ const CHARACTERS = [
         "air_mult": 1.02,
         "swing_mult": 0.94,
         "zip_mult": 1.15,
+        "combat_mult": 1.00,
         "defense_mult": 1.00
     },
     {
@@ -62,6 +64,7 @@ const CHARACTERS = [
         "air_mult": 1.13,
         "swing_mult": 1.02,
         "zip_mult": 0.98,
+        "combat_mult": 0.90,
         "defense_mult": 0.86
     },
     {
@@ -83,6 +86,7 @@ const CHARACTERS = [
         "air_mult": 0.82,
         "swing_mult": 0.90,
         "zip_mult": 0.92,
+        "combat_mult": 1.42,
         "defense_mult": 1.24
     }
 ]

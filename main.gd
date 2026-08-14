@@ -36,10 +36,11 @@ var mission_label = null
 var counter_label = null
 var timer_label = null
 var health_label = null
+var movement_label = null
 var message_label = null
 var result_overlay = null
 
-var final_beacon_position = Vector3(56.0, 51.5, 54.0)
+var final_beacon_position = Vector3(62.0, 51.5, 66.0)
 
 func _ready():
     _setup_input()
@@ -98,16 +99,14 @@ func _setup_input():
     _bind_key("move_left", KEY_A)
     _bind_key("move_right", KEY_D)
     _bind_key("jump", KEY_SPACE)
-    _bind_key("sprint", KEY_SHIFT)
-    _bind_key("grapple", KEY_E)
+    _bind_key("grapple", KEY_SHIFT)
     _bind_key("zip", KEY_Q)
-    _bind_key("attack", KEY_F)
     _bind_key("restart", KEY_R)
     _bind_key("start_game", KEY_ENTER)
     _bind_key("audio_settings", KEY_O)
     _bind_key("close_menu", KEY_ESCAPE)
-    _bind_mouse("grapple", MOUSE_BUTTON_LEFT)
-    _bind_mouse("zip", MOUSE_BUTTON_RIGHT)
+    _bind_mouse("attack", MOUSE_BUTTON_LEFT)
+    _bind_mouse("special_attack", MOUSE_BUTTON_RIGHT)
 
 func _bind_key(action_name, key_code):
     if not InputMap.has_action(action_name):
@@ -164,51 +163,51 @@ func _build_environment():
     add_child(fill)
 
 func _build_ground_and_city():
-    _add_static_box("Ground", Vector3(0, -1.5, 0), Vector3(210, 3, 210), Color("#273141"))
+    _add_static_box("Ground", Vector3(0, -1.5, 0), Vector3(240, 3, 240), Color("#273141"))
 
     # Four broad crossing roads establish recognizable city blocks.
     var road_color = Color("#191f2a")
-    for z in [-36.0, 0.0, 36.0]:
-        _add_visual_box("RoadX_%s" % str(z), Vector3(0, 0.03, z), Vector3(210, 0.09, 12), road_color, false)
-    for x in [-36.0, 0.0, 36.0]:
-        _add_visual_box("RoadZ_%s" % str(x), Vector3(x, 0.03, 0), Vector3(12, 0.09, 210), road_color, false)
+    for z in [-45.0, 0.0, 45.0]:
+        _add_visual_box("RoadX_%s" % str(z), Vector3(0, 0.03, z), Vector3(240, 0.09, 13), road_color, false)
+    for x in [-45.0, 0.0, 45.0]:
+        _add_visual_box("RoadZ_%s" % str(x), Vector3(x, 0.03, 0), Vector3(13, 0.09, 240), road_color, false)
 
     # Lane paint.
     for k in range(-5, 6):
-        for z in [-36.0, 0.0, 36.0]:
-            _add_visual_box("LaneX_%d_%d" % [int(z), k], Vector3(k * 17.0, 0.07, z), Vector3(7.0, 0.03, 0.28), Color("#e8d678"), true)
-        for x in [-36.0, 0.0, 36.0]:
-            _add_visual_box("LaneZ_%d_%d" % [int(x), k], Vector3(x, 0.07, k * 17.0), Vector3(0.28, 0.03, 7.0), Color("#e8d678"), true)
+        for z in [-45.0, 0.0, 45.0]:
+            _add_visual_box("LaneX_%d_%d" % [int(z), k], Vector3(k * 19.0, 0.07, z), Vector3(7.5, 0.03, 0.28), Color("#e8d678"), true)
+        for x in [-45.0, 0.0, 45.0]:
+            _add_visual_box("LaneZ_%d_%d" % [int(x), k], Vector3(x, 0.07, k * 19.0), Vector3(0.28, 0.03, 7.5), Color("#e8d678"), true)
 
     # Main playable towers. Sizes intentionally vary so good swing anchors differ from bad ones.
     var specs = [
-        [Vector3(-70, 12, -70), Vector3(20,24,20), Color("#495870")],
-        [Vector3(-49, 20, -68), Vector3(18,40,18), Color("#34445c")],
-        [Vector3(-18, 14, -68), Vector3(22,28,20), Color("#52627b")],
-        [Vector3(18, 22, -68), Vector3(22,44,20), Color("#36455f")],
-        [Vector3(52, 15, -68), Vector3(22,30,20), Color("#4c5c75")],
-        [Vector3(75, 25, -68), Vector3(18,50,18), Color("#2f3d53")],
+        [Vector3(-84, 12, -82), Vector3(20,24,20), Color("#495870")],
+        [Vector3(-58, 20, -82), Vector3(18,40,18), Color("#34445c")],
+        [Vector3(-22, 14, -82), Vector3(22,28,20), Color("#52627b")],
+        [Vector3(22, 22, -82), Vector3(22,44,20), Color("#36455f")],
+        [Vector3(62, 15, -82), Vector3(22,30,20), Color("#4c5c75")],
+        [Vector3(88, 25, -82), Vector3(18,50,18), Color("#2f3d53")],
 
-        [Vector3(-70, 18, -18), Vector3(20,36,20), Color("#3b4b64")],
-        [Vector3(-50, 11, -18), Vector3(18,22,20), Color("#59677e")],
-        [Vector3(-18, 24, -18), Vector3(22,48,20), Color("#303e55")],
-        [Vector3(18, 16, -18), Vector3(22,32,20), Color("#455570")],
-        [Vector3(54, 23, -18), Vector3(22,46,20), Color("#334159")],
-        [Vector3(76, 14, -18), Vector3(18,28,20), Color("#52627b")],
+        [Vector3(-84, 18, -26), Vector3(20,36,20), Color("#3b4b64")],
+        [Vector3(-60, 11, -26), Vector3(18,22,20), Color("#59677e")],
+        [Vector3(-22, 24, -26), Vector3(22,48,20), Color("#303e55")],
+        [Vector3(22, 16, -26), Vector3(22,32,20), Color("#455570")],
+        [Vector3(62, 23, -26), Vector3(22,46,20), Color("#334159")],
+        [Vector3(88, 14, -26), Vector3(18,28,20), Color("#52627b")],
 
-        [Vector3(-70, 13, 18), Vector3(20,26,20), Color("#4f5f78")],
-        [Vector3(-50, 26, 18), Vector3(18,52,20), Color("#2d3a50")],
-        [Vector3(-18, 17, 18), Vector3(22,34,20), Color("#42516a")],
-        [Vector3(18, 27, 18), Vector3(22,54,20), Color("#2e3b50")],
-        [Vector3(54, 18, 18), Vector3(22,36,20), Color("#41526c")],
-        [Vector3(76, 22, 18), Vector3(18,44,20), Color("#35445d")],
+        [Vector3(-84, 13, 26), Vector3(20,26,20), Color("#4f5f78")],
+        [Vector3(-60, 26, 26), Vector3(18,52,20), Color("#2d3a50")],
+        [Vector3(-22, 17, 26), Vector3(22,34,20), Color("#42516a")],
+        [Vector3(22, 27, 26), Vector3(22,54,20), Color("#2e3b50")],
+        [Vector3(62, 18, 26), Vector3(22,36,20), Color("#41526c")],
+        [Vector3(88, 22, 26), Vector3(18,44,20), Color("#35445d")],
 
-        [Vector3(-70, 22, 68), Vector3(20,44,20), Color("#34435b")],
-        [Vector3(-50, 15, 68), Vector3(18,30,20), Color("#50617a")],
-        [Vector3(-18, 25, 68), Vector3(22,50,20), Color("#314057")],
-        [Vector3(18, 18, 68), Vector3(22,36,20), Color("#485972")],
-        [Vector3(56, 25, 54), Vector3(24,50,24), Color("#2d3b50")],
-        [Vector3(78, 16, 68), Vector3(18,32,20), Color("#465670")]
+        [Vector3(-84, 22, 82), Vector3(20,44,20), Color("#34435b")],
+        [Vector3(-60, 15, 82), Vector3(18,30,20), Color("#50617a")],
+        [Vector3(-22, 25, 82), Vector3(22,50,20), Color("#314057")],
+        [Vector3(22, 18, 82), Vector3(22,36,20), Color("#485972")],
+        [Vector3(62, 25, 66), Vector3(24,50,24), Color("#2d3b50")],
+        [Vector3(88, 16, 82), Vector3(18,32,20), Color("#465670")]
     ]
 
     var index = 0
@@ -220,8 +219,8 @@ func _build_ground_and_city():
     _add_building("StartTower", Vector3(0, 8, 0), Vector3(18,16,18), Color("#586a82"))
 
     # Small park regions and rooftop props make the city less box-like.
-    _add_visual_box("ParkA", Vector3(-70, 0.08, 60), Vector3(24,0.12,18), Color("#355b43"), false)
-    _add_visual_box("ParkB", Vector3(67, 0.08, -2), Vector3(22,0.12,20), Color("#3b6248"), false)
+    _add_visual_box("ParkA", Vector3(-84, 0.08, 66), Vector3(26,0.12,20), Color("#355b43"), false)
+    _add_visual_box("ParkB", Vector3(76, 0.08, -2), Vector3(26,0.12,22), Color("#3b6248"), false)
     _add_street_lights()
     _add_billboards()
 
@@ -307,7 +306,7 @@ func _add_street_lights():
             holder.add_child(bulb)
 
 func _add_billboards():
-    var positions = [Vector3(-18, 34, -57.8), Vector3(54, 38, -7.8), Vector3(-50, 39, 28.2)]
+    var positions = [Vector3(-22, 34, -71.8), Vector3(62, 38, -15.8), Vector3(-60, 39, 36.2)]
     var colors = [Color("#ff4f88"), Color("#48f0d0"), Color("#ffd44f")]
     for i in range(positions.size()):
         _add_visual_box("Billboard_%d" % i, positions[i], Vector3(7.0,3.0,0.30), colors[i], true)
@@ -333,7 +332,7 @@ func _build_ui():
 
     var hud_panel = ColorRect.new()
     hud_panel.position = Vector2(18,18)
-    hud_panel.size = Vector2(520,132)
+    hud_panel.size = Vector2(520,164)
     hud_panel.color = Color(0.025,0.035,0.065,0.82)
     ui.add_child(hud_panel)
 
@@ -356,6 +355,12 @@ func _build_ui():
     health_label.position = Vector2(34,119)
     health_label.add_theme_font_size_override("font_size",16)
     ui.add_child(health_label)
+
+    movement_label = Label.new()
+    movement_label.position = Vector2(34,146)
+    movement_label.add_theme_font_size_override("font_size",16)
+    movement_label.add_theme_color_override("font_color", Color("#7ee8ff"))
+    ui.add_child(movement_label)
 
     message_label = Label.new()
     message_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -543,6 +548,7 @@ func _show_menu():
     counter_label.text = ""
     timer_label.text = ""
     health_label.text = ""
+    movement_label.text = ""
     message_label.text = ""
 
 func _show_character_select():
@@ -595,9 +601,9 @@ func _start_collect_mission():
     mission = 1
     mission_count = 0
     var points = [
-        Vector3(-18, 49.5, -18), Vector3(18, 33.5, -18), Vector3(54, 47.5, -18),
-        Vector3(18, 55.5, 18), Vector3(-50, 53.5, 18), Vector3(-18, 51.5, 68),
-        Vector3(56, 51.5, 54), Vector3(-49, 41.5, -68)
+        Vector3(-22, 49.5, -26), Vector3(22, 33.5, -26), Vector3(62, 47.5, -26),
+        Vector3(22, 55.5, 26), Vector3(-60, 53.5, 26), Vector3(-22, 51.5, 82),
+        Vector3(62, 51.5, 66), Vector3(-58, 41.5, -82)
     ]
     mission_total = points.size()
     for p in points:
@@ -624,9 +630,9 @@ func _start_ring_mission():
     mission_count = 0
     mission_timer = 52.0
     var points = [
-        Vector3(5,26,-10), Vector3(18,37,-30), Vector3(28,45,-52), Vector3(52,39,-45),
-        Vector3(66,34,-22), Vector3(48,39,0), Vector3(28,48,17), Vector3(12,42,34),
-        Vector3(-14,40,38), Vector3(-34,43,22)
+        Vector3(6,26,-12), Vector3(22,37,-36), Vector3(34,45,-64), Vector3(62,39,-56),
+        Vector3(78,34,-30), Vector3(54,39,0), Vector3(34,48,24), Vector3(14,42,44),
+        Vector3(-18,40,48), Vector3(-42,43,30)
     ]
     mission_total = points.size()
     for p in points:
@@ -658,8 +664,8 @@ func _start_combat_mission():
     mission = 3
     mission_count = 0
     var positions = [
-        Vector3(-18,52,-18), Vector3(18,58,18), Vector3(54,49,-18),
-        Vector3(-50,55,18), Vector3(-18,53,68), Vector3(56,54,54)
+        Vector3(-22,52,-26), Vector3(22,58,26), Vector3(62,49,-26),
+        Vector3(-60,55,26), Vector3(-22,53,82), Vector3(62,54,66)
     ]
     enemies_left = positions.size()
     mission_total = enemies_left
@@ -671,7 +677,7 @@ func _start_combat_mission():
         add_child(drone)
         drone.set_target(player)
         drone.defeated.connect(_on_drone_defeated)
-    message_label.text = "MISSION 3 — hostile drones! Get close and press F. Two hits each."
+    message_label.text = "MISSION 3 — hostile drones! Use LMB combos and your RMB special."
     _update_hud()
 
 func _on_drone_defeated(_drone):
@@ -688,8 +694,8 @@ func _start_final_mission():
     mission_count = 0
     mission_total = 1
     mission_timer = 38.0
-    player.set_spawn_position(Vector3(-70,45,-70))
-    player.global_position = Vector3(-70,45,-70)
+    player.set_spawn_position(Vector3(-84,45,-82))
+    player.global_position = Vector3(-84,45,-82)
     player.velocity = Vector3.ZERO
     player.heal_full()
     _add_final_beacon()
@@ -763,6 +769,7 @@ func _update_hud():
         return
     mission_label.text = "MISSION %d / 4" % mission
     health_label.text = "Health: %d   |   Deaths: %d   |   Run: %.1fs" % [player.health, deaths, run_time]
+    movement_label.text = "MOVEMENT: %s" % player.get_movement_state_name()
 
     if mission == 1:
         counter_label.text = "Data shards: %d / %d" % [mission_count, mission_total]
@@ -772,7 +779,7 @@ func _update_hud():
         timer_label.text = "Time left: %.1fs" % max(0.0, mission_timer)
     elif mission == 3:
         counter_label.text = "Drones defeated: %d / %d" % [mission_count, mission_total]
-        timer_label.text = "F = close-range strike"
+        timer_label.text = "LMB = combo   |   RMB = special"
     elif mission == 4:
         counter_label.text = "Reach the final beacon"
         timer_label.text = "Time left: %.1fs" % max(0.0, mission_timer)

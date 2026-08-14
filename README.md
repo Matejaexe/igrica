@@ -7,8 +7,12 @@ Early Godot 4 prototype for the stylized PS2/Bomb-Rush-inspired co-op traversal 
 - Four temporary web-hero characters with different palettes.
 - Full rotating 3D character preview in character select.
 - Visible gameplay stats, movement style, special, strengths and weaknesses.
-- Stats now modify real movement values (speed, acceleration, air control, swing, zip, damage resistance).
-- Existing web swing, zip, wall jump, missions, drones and city prototype retained.
+- Stats now modify real gameplay values (speed, acceleration, air control, swing, zip, combat damage, damage resistance).
+- Shift web swing with momentum-preserving release, Q web zip, automatic wall ride, wall jump, missions, drones and city prototype.
+- LMB combo and character-specific RMB specials; combat and defense stats affect gameplay.
+- Procedural placeholder poses now cover running, jumping/falling, swing phases, release, zip, wall riding, wall jumping, combos and specials.
+- Traversal-speed FOV, subtle wall camera roll, landing feedback and a temporary movement-state HUD aid playtesting.
+- City blocks have varied dense, medium and larger gaps so swing routes require more deliberate lines.
 
 ## Temporary roster
 - CRIMSON — Swing / Acrobat
@@ -29,11 +33,11 @@ These are placeholders and will later be replaced by original character concepts
 - A / D: change character in select
 - WASD: movement
 - Mouse: camera / aim
-- LMB or E: web swing
-- RMB or Q: zip
+- Shift: web swing / pump
+- Q: web zip
 - Space: jump / wall jump / swing release
-- Shift: sprint
-- F: attack
+- LMB: normal attack / combo
+- RMB: character-specific special
 
 
 ## Audio pass
