@@ -41,10 +41,14 @@ These are placeholders and will later be replaced by original character concepts
 
 
 ## Audio pass
-Three original jungle / drum & bass tracks are included:
-- Concrete Canopy
-- Neon Underpass
-- Bridge Velocity
+The default shuffle-bag playlist uses five original jungle / drum & bass tracks:
+- Rooftop Static
+- Highrise Rush
+- Factory Pressure
+- Concrete Tricks
+- Redline Pursuit
+
+Concrete Canopy, Neon Underpass and Bridge Velocity remain available in the inactive legacy pool. Tracks crossfade without changing the saved Music bus volume.
 
 Press **O** on the title screen for Audio Settings.
 The game exposes persistent sliders for:
