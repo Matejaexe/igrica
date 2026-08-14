@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<rect width="512" height="512" fill="#d72031"/>
+<g stroke="#0c0e14" stroke-width="5" fill="none" opacity="0.92">
+  <path d="M256 0 L256 512"/>
+  <path d="M0 64 Q256 132 512 64"/>
+  <path d="M0 152 Q256 204 512 152"/>
+  <path d="M0 248 Q256 284 512 248"/>
+  <path d="M0 344 Q256 364 512 344"/>
+  <path d="M0 440 Q256 444 512 440"/>
+  <path d="M82 0 Q148 256 82 512"/>
+  <path d="M170 0 Q206 256 170 512"/>
+  <path d="M342 0 Q306 256 342 512"/>
+  <path d="M430 0 Q364 256 430 512"/>
+</g>
+</svg>

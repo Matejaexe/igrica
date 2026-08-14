@@ -7,6 +7,10 @@ const DRONE_SCRIPT = preload("res://drone.gd")
 const ROSTER = preload("res://character_roster.gd")
 const CHARACTER_PREVIEW_SCRIPT = preload("res://character_preview.gd")
 const AUDIO_MANAGER_SCRIPT = preload("res://audio_manager.gd")
+const WORLD_DECORATOR_SCRIPT = preload("res://world_decorator.gd")
+const GRAFFITI_MANAGER_SCRIPT = preload("res://graffiti_manager.gd")
+const PLAYER_SFX_SCRIPT = preload("res://player_sfx.gd")
+const TITLE_LOGO = preload("res://art/ui/spider_city_logo.svg")
 
 var player = null
 var game_state = "menu"
@@ -47,10 +51,24 @@ func _ready():
     _load_save()
     _build_environment()
     _build_ground_and_city()
+    _build_world_decorator()
     _build_player()
     _build_audio()
     _build_ui()
+    _build_graffiti()
     _show_menu()
+
+func _build_world_decorator():
+    var decorator = WORLD_DECORATOR_SCRIPT.new()
+    decorator.name = "WorldDecorator"
+    add_child(decorator)
+    decorator.decorate_city(self)
+
+func _build_graffiti():
+    var graffiti_manager = GRAFFITI_MANAGER_SCRIPT.new()
+    graffiti_manager.name = "GraffitiManager"
+    add_child(graffiti_manager)
+    graffiti_manager.setup(self)
 
 func _process(delta):
     if game_state == "menu":
@@ -101,6 +119,7 @@ func _setup_input():
     _bind_key("jump", KEY_SPACE)
     _bind_key("grapple", KEY_SHIFT)
     _bind_key("zip", KEY_Q)
+    _bind_key("interact", KEY_F)
     _bind_key("restart", KEY_R)
     _bind_key("start_game", KEY_ENTER)
     _bind_key("audio_settings", KEY_O)
@@ -317,6 +336,11 @@ func _build_player():
     player.set_script(PLAYER_SCRIPT)
     player.position = Vector3(0, 17.4, 0)
     add_child(player)
+    player.add_to_group("player")
+    var player_sfx = Node.new()
+    player_sfx.name = "PlayerSFX"
+    player_sfx.set_script(PLAYER_SFX_SCRIPT)
+    player.add_child(player_sfx)
     player.health_changed.connect(_on_health_changed)
     player.player_died.connect(_on_player_died)
 
@@ -382,18 +406,19 @@ func _build_ui():
     title_overlay.color = Color(0.015,0.02,0.045,0.90)
     ui.add_child(title_overlay)
 
-    var title = Label.new()
-    title.set_anchors_preset(Control.PRESET_CENTER)
-    title.position = Vector2(-390,-170)
-    title.size = Vector2(780,130)
-    title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    title.text = "SPIDER CITY\nWEB RUNNER"
-    title.add_theme_font_size_override("font_size",48)
-    title_overlay.add_child(title)
+    var logo = TextureRect.new()
+    logo.texture = TITLE_LOGO
+    logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+    logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+    logo.set_anchors_preset(Control.PRESET_CENTER)
+    logo.position = Vector2(-440,-245)
+    logo.size = Vector2(880,300)
+    logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    title_overlay.add_child(logo)
 
     var subtitle = Label.new()
     subtitle.set_anchors_preset(Control.PRESET_CENTER)
-    subtitle.position = Vector2(-420,-30)
+    subtitle.position = Vector2(-420,45)
     subtitle.size = Vector2(840,230)
     subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     subtitle.text = "PS2 / urban traversal prototype v0.1\n\nWeb swing • graffiti • multiplayer foundation • character roster\n\nPRESS ENTER FOR CHARACTER SELECT\n\nO = AUDIO SETTINGS"

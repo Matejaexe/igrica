@@ -1,0 +1,42 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://spidey_retarget_player.gd" id="1"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape_player"]
+radius = 0.46
+height = 2.4
+
+[node name="SpideyRetargetPlayer" type="CharacterBody3D"]
+script = ExtResource("1")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 1.2, 0)
+shape = SubResource("CapsuleShape_player")
+
+[node name="VisualRoot" type="Node3D" parent="."]
+
+[node name="TargetMount" type="Node3D" parent="VisualRoot"]
+
+[node name="SourceMount" type="Node3D" parent="."]
+
+[node name="CameraPivot" type="Node3D" parent="."]
+position = Vector3(0, 1.5, 0)
+rotation = Vector3(-0.15, 0, 0)
+
+[node name="SpringArm3D" type="SpringArm3D" parent="CameraPivot"]
+spring_length = 5.2
+margin = 0.15
+
+[node name="Camera3D" type="Camera3D" parent="CameraPivot/SpringArm3D"]
+current = true
+fov = 78.0
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="Status" type="Label" parent="HUD"]
+offset_left = 18.0
+offset_top = 18.0
+offset_right = 920.0
+offset_bottom = 92.0
+theme_override_font_sizes/font_size = 16
+text = "Loading retarget test..."

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="500" viewBox="0 0 1400 500">
+<defs>
+ <linearGradient id="a" x1="0" x2="1"><stop stop-color="#45f0d0"/><stop offset=".5" stop-color="#68a7ff"/><stop offset="1" stop-color="#ff4f9a"/></linearGradient>
+</defs>
+<path d="M90 330 L230 94 L344 254 L470 74 L588 292 L710 106 L826 260 L960 78 L1084 278 L1306 108"
+ fill="none" stroke="#10131d" stroke-width="72" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M90 330 L230 94 L344 254 L470 74 L588 292 L710 106 L826 260 L960 78 L1084 278 L1306 108"
+ fill="none" stroke="url(#a)" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="700" y="410" text-anchor="middle" font-family="sans-serif" font-weight="900" font-style="italic"
+ font-size="150" letter-spacing="-8" fill="#f7fbff" stroke="#10131d" stroke-width="24" paint-order="stroke">SPIDER CITY</text>
+</svg>
