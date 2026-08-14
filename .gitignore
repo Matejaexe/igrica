@@ -1,0 +1,18 @@
+# Godot 4 generated files
+.godot/
+
+# Generated export credentials contain local secrets
+export_credentials.cfg
+
+# Local export/build output
+builds/
+exports/
+
+# Editor and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
