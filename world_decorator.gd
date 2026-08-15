@@ -30,12 +30,11 @@ func decorate_city(city_root: Node3D) -> void:
 	_decorated = true
 
 	var buildings: Array[StaticBody3D] = []
-	for child_value in city_root.get_children():
-		var child: Node = child_value
-		if child is StaticBody3D:
-			var body := child as StaticBody3D
-			if body.name.begins_with("Building_") or body.name == "StartTower":
-				buildings.append(body)
+	for node_value in get_tree().get_nodes_in_group("city_building"):
+		var body := node_value as StaticBody3D
+		if body != null and city_root.is_ancestor_of(body):
+			buildings.append(body)
+	buildings.sort_custom(_building_name_less)
 
 	for index in range(buildings.size()):
 		_skin_building(buildings[index], index)
@@ -44,13 +43,16 @@ func decorate_city(city_root: Node3D) -> void:
 	_add_city_cables(city_root)
 	_add_center_sign(city_root)
 
+func _building_name_less(a: StaticBody3D, b: StaticBody3D) -> bool:
+	return String(a.name).naturalnocasecmp_to(String(b.name)) < 0
+
 func _skin_building(body: StaticBody3D, index: int) -> void:
 	var size: Vector3 = _find_building_size(body)
 	if size == Vector3.ZERO:
 		return
 
-	# Each face can use a different facade from the small atlas pool. The cards
-	# sit just outside the old procedural windows, visually replacing them.
+	# Each face can use a different facade from the small atlas pool. Facade
+	# cards replace the former per-window mesh field at a fraction of the cost.
 	var front_texture: Texture2D = FACADE_TEXTURES[index % FACADE_TEXTURES.size()]
 	var side_texture: Texture2D = FACADE_TEXTURES[(index + 2) % FACADE_TEXTURES.size()]
 	var back_texture: Texture2D = FACADE_TEXTURES[(index + 4) % FACADE_TEXTURES.size()]
@@ -67,12 +69,21 @@ func _skin_building(body: StaticBody3D, index: int) -> void:
 	_add_visual_box(body, "RoofLip", Vector3(0, roof_y + 0.12, 0), Vector3(size.x * 0.90, 0.24, size.z * 0.90), Color("#151b27"), false)
 	_add_visual_box(body, "RoofGlow", Vector3(0, roof_y + 0.25, size.z * 0.38), Vector3(size.x * 0.54, 0.10, 0.08), accent, true)
 
-	if index % 3 == 0:
-		_add_water_tank(body, Vector3(-size.x * 0.18, roof_y + 1.65, size.z * 0.16))
-	elif index % 3 == 1:
-		_add_antenna_cluster(body, Vector3(size.x * 0.20, roof_y + 0.20, -size.z * 0.18), accent)
-	else:
-		_add_rooftop_box_cluster(body, size, accent)
+	var style: int = int(body.get_meta("architecture_style", index % 4))
+	# Legacy core buildings already carry their original HVAC/antenna kit from
+	# main.gd. Avoid stacking a second procedural roof kit on the same surface.
+	if not bool(body.get_meta("legacy_roof_kit", false)):
+		match style:
+			0:
+				_add_water_tank(body, Vector3(-size.x * 0.18, roof_y + 1.65, size.z * 0.16))
+			1:
+				_add_antenna_cluster(body, Vector3(size.x * 0.20, roof_y + 0.20, -size.z * 0.18), accent)
+			2:
+				_add_rooftop_box_cluster(body, size, accent)
+			3:
+				_add_rooftop_crown(body, size, accent, false)
+			4:
+				_add_rooftop_crown(body, size, accent, true)
 
 	# A single bold sign every few buildings keeps the city readable without
 	# covering every wall in noise.
@@ -94,11 +105,17 @@ func _add_facade(
 	instance.mesh = quad
 	instance.position = pos
 	instance.rotation_degrees = rotation_deg
-	instance.material_override = _facade_material(texture)
+	instance.material_override = _facade_material(texture, quad_size.y)
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_apply_building_detail_range(instance, parent)
 	parent.add_child(instance)
 
-func _facade_material(texture: Texture2D) -> StandardMaterial3D:
-	var key: String = texture.resource_path
+func _facade_material(
+	texture: Texture2D,
+	facade_height: float
+) -> StandardMaterial3D:
+	var floor_band: int = maxi(2, roundi(facade_height / 8.0))
+	var key: String = "%s|%d" % [texture.resource_path, floor_band]
 	if _facade_material_cache.has(key):
 		return _facade_material_cache[key] as StandardMaterial3D
 
@@ -108,6 +125,12 @@ func _facade_material(texture: Texture2D) -> StandardMaterial3D:
 	material.metallic = 0.0
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	material.texture_repeat = true
+	material.uv1_scale = Vector3(
+		1.0,
+		maxf(float(floor_band) * 8.0 / 84.0, 0.22),
+		1.0
+	)
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
 	_facade_material_cache[key] = material
 	return material
@@ -139,6 +162,7 @@ func _add_water_tank(parent: Node3D, pos: Vector3) -> void:
 	tank.mesh = mesh
 	tank.position = pos
 	tank.material_override = _solid_material(Color("#343c49"), false)
+	_apply_building_detail_range(tank, parent)
 	parent.add_child(tank)
 
 	for x_value in [-0.80, 0.80]:
@@ -159,6 +183,8 @@ func _add_antenna_cluster(parent: Node3D, pos: Vector3, accent: Color) -> void:
 		antenna.mesh = mesh
 		antenna.position = pos + Vector3(float(index) * 0.42, mesh.height * 0.5, float(index) * 0.18)
 		antenna.material_override = _solid_material(Color("#7e8999"), false)
+		antenna.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_apply_building_detail_range(antenna, parent)
 		parent.add_child(antenna)
 
 	var beacon := MeshInstance3D.new()
@@ -170,7 +196,96 @@ func _add_antenna_cluster(parent: Node3D, pos: Vector3, accent: Color) -> void:
 	beacon.mesh = sphere
 	beacon.position = pos + Vector3(0.84, 3.70, 0.36)
 	beacon.material_override = _solid_material(accent, true)
+	beacon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_apply_building_detail_range(beacon, parent)
 	parent.add_child(beacon)
+
+func _add_rooftop_crown(
+	body: StaticBody3D,
+	size: Vector3,
+	accent: Color,
+	landmark: bool
+) -> void:
+	var crown_height: float = 11.0 if landmark else clampf(size.y * 0.10, 3.0, 7.0)
+	var crown_size := Vector3(
+		size.x * (0.48 if landmark else 0.42),
+		crown_height,
+		size.z * (0.48 if landmark else 0.38)
+	)
+	var crown_pos := Vector3(
+		0,
+		size.y * 0.5 + crown_height * 0.5,
+		-size.z * 0.08
+	)
+	_add_collidable_roof_box(
+		body,
+		"SkylineCrown",
+		crown_pos,
+		crown_size,
+		Color("#1d2738"),
+		landmark
+	)
+	_add_visual_box(
+		body,
+		"CrownBand",
+		crown_pos + Vector3(0, crown_height * 0.22, crown_size.z * 0.505),
+		Vector3(crown_size.x * 0.82, 0.30, 0.10),
+		accent,
+		true
+	)
+
+	if not landmark:
+		return
+
+	var upper_height: float = 7.0
+	var upper_size := Vector3(crown_size.x * 0.58, upper_height, crown_size.z * 0.58)
+	var upper_pos := crown_pos + Vector3(
+		0,
+		crown_height * 0.5 + upper_height * 0.5,
+		0
+	)
+	_add_collidable_roof_box(
+		body,
+		"SkylineUpperCrown",
+		upper_pos,
+		upper_size,
+		Color("#151e2c"),
+		true
+	)
+	_add_antenna_cluster(
+		body,
+		upper_pos + Vector3(0, upper_height * 0.5, 0),
+		accent
+	)
+
+func _add_collidable_roof_box(
+	body: StaticBody3D,
+	node_name: String,
+	pos: Vector3,
+	size: Vector3,
+	color: Color,
+	use_silhouette_range: bool = false
+) -> void:
+	var instance: MeshInstance3D = _add_visual_box(
+		body,
+		node_name,
+		pos,
+		size,
+		color,
+		false
+	)
+	if use_silhouette_range:
+		instance.visibility_range_end = float(
+			body.get_meta("city_silhouette_range", 1400.0)
+		)
+		instance.visibility_range_end_margin = 35.0
+	var collision := CollisionShape3D.new()
+	collision.name = node_name + "Collision"
+	var shape := BoxShape3D.new()
+	shape.size = size
+	collision.shape = shape
+	collision.position = pos
+	body.add_child(collision)
 
 func _add_rooftop_box_cluster(parent: Node3D, size: Vector3, accent: Color) -> void:
 	var y: float = size.y * 0.5 + 0.55
@@ -189,10 +304,11 @@ func _add_neon_sign(body: StaticBody3D, size: Vector3, index: int, accent: Color
 	label.modulate = accent
 	label.outline_modulate = Color("#0d1018")
 	label.position = Vector3(0, minf(size.y * 0.24, 8.0), size.z * 0.5 + 0.19)
+	_apply_building_detail_range(label, body)
 	body.add_child(label)
 
 func _add_rooftop_route_props(city_root: Node3D, buildings: Array[StaticBody3D]) -> void:
-	var indices: Array[int] = [3, 8, 14, 20]
+	var indices: Array[int] = [3, 8, 14, 20, 31, 43, 56, 69, 82, 95, 108]
 	for index in indices:
 		if index < 0 or index >= buildings.size():
 			continue
@@ -201,14 +317,22 @@ func _add_rooftop_route_props(city_root: Node3D, buildings: Array[StaticBody3D])
 		if size == Vector3.ZERO:
 			continue
 
-		var world_pos: Vector3 = body.global_position + Vector3(0, size.y * 0.5 + 0.62, 0)
+		var ramp_z: float = size.z * (0.10 if index < 24 else 0.30)
+		var ramp_parent := body.get_parent() as Node3D
+		if ramp_parent == null:
+			ramp_parent = city_root
+		var ramp_world_position := body.to_global(Vector3(
+			0,
+			size.y * 0.5 + 0.80,
+			ramp_z
+		))
 		var ramp: StaticBody3D = _add_static_box(
-			city_root,
+			ramp_parent,
 			"TraversalRamp_%02d" % index,
-			world_pos + Vector3(0, 0.18, size.z * 0.10),
+			ramp_parent.to_local(ramp_world_position),
 			Vector3(5.0, 0.55, 7.0),
 			Color("#202837"),
-			Vector3(-12.0, 0, 0)
+			Vector3(-12.0, body.global_rotation_degrees.y, 0)
 		)
 		_add_visual_box(ramp, "RampStripe", Vector3(0, 0.31, 0), Vector3(3.9, 0.05, 5.8), ACCENTS[index % ACCENTS.size()], true)
 
@@ -304,8 +428,25 @@ func _add_visual_box(parent: Node3D, node_name: String, pos: Vector3, size: Vect
 	instance.mesh = mesh
 	instance.position = pos
 	instance.material_override = _solid_material(color, emission)
+	if size.y < 2.0 or maxf(size.x, size.z) < 3.2:
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_apply_building_detail_range(instance, parent)
 	parent.add_child(instance)
 	return instance
+
+func _apply_building_detail_range(
+	instance: GeometryInstance3D,
+	parent: Node
+) -> void:
+	var current: Node = parent
+	while current != null:
+		if current.has_meta("city_detail_range"):
+			instance.visibility_range_end = float(
+				current.get_meta("city_detail_range")
+			)
+			instance.visibility_range_end_margin = 25.0
+			return
+		current = current.get_parent()
 
 func _solid_material(color: Color, emission: bool) -> StandardMaterial3D:
 	var key: String = "%s|%s" % [color.to_html(true), str(emission)]

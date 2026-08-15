@@ -13,6 +13,8 @@ const RUN_SPEED = 17.0
 const GROUND_ACCEL = 50.0
 const AIR_ACCEL = 19.0
 const JUMP_SPEED = 12.0
+const DOUBLE_JUMP_SPEED = 11.4
+const DOUBLE_JUMP_POSE_DURATION = 0.50
 const WALL_JUMP_UP = 10.8
 const WALL_JUMP_OUT = 10.0
 const GRAVITY_FORCE = 27.5
@@ -41,6 +43,11 @@ const WALL_CONTACT_GRACE = 0.18
 const BASE_CAMERA_FOV = 82.0
 const PLAYER_CAPSULE_RADIUS = 0.46
 const WALL_MESH_SAFE_MARGIN = 0.06
+# The imported bind AABB includes T-pose fingertips and is much wider than the
+# compact wall-run silhouette. Using that full width pushed the torso a metre
+# from the facade and forced both legs into a seated reach. This posed envelope
+# includes the compact wall lean while keeping the torso and shoes outside.
+const WALL_RUN_POSED_HALF_WIDTH = 0.58
 
 var active = false
 var character_index = 0
@@ -80,18 +87,24 @@ var movement_state = MovementState.AIR
 var zip_pose_time = 0.0
 var swing_release_pose_time = 0.0
 var wall_jump_pose_time = 0.0
+var double_jump_pose_time = 0.0
+var double_jump_sequence = 0
+var air_jumps_remaining = 1
 var attack_pose_time = 0.0
 var attack_pose_duration = 0.0
 var special_pose = ""
+# Traversal root presentation has one writer: this script. The real BRC rig
+# controller supplies only a desired pitch/yaw for states such as DIVE/ZIP.
+var brc_traversal_root_override_active = false
+var brc_traversal_root_pitch = 0.0
+var brc_traversal_root_yaw = 0.0
 var was_on_floor = false
 var landing_feedback = 0.0
 var last_vertical_speed = 0.0
 var swing_pose_time = 0.0
 var wall_visual_offset = max(
 	0.0,
-	# Capsule contact already supplies PLAYER_CAPSULE_RADIUS. Add only the
-	# difference needed for the scaled bind-pose mesh plus a facade margin.
-	SPIDEY_IMPORTED.MODEL_SCALED_HALF_WIDTH - PLAYER_CAPSULE_RADIUS + WALL_MESH_SAFE_MARGIN
+	WALL_RUN_POSED_HALF_WIDTH - PLAYER_CAPSULE_RADIUS + WALL_MESH_SAFE_MARGIN
 )
 
 var left_arm = null
@@ -166,6 +179,7 @@ func _physics_process(delta):
 	zip_pose_time = max(0.0, zip_pose_time - delta)
 	swing_release_pose_time = max(0.0, swing_release_pose_time - delta)
 	wall_jump_pose_time = max(0.0, wall_jump_pose_time - delta)
+	double_jump_pose_time = max(0.0, double_jump_pose_time - delta)
 	attack_pose_time = max(0.0, attack_pose_time - delta)
 	landing_feedback = move_toward(landing_feedback, 0.0, 7.0 * delta)
 	swing_pose_time = swing_pose_time + delta if grappling else 0.0
@@ -368,6 +382,9 @@ func _build_web_line():
 
 func _handle_movement(delta, wish_dir):
 	var speed = RUN_SPEED * speed_mult
+	if is_on_floor():
+		air_jumps_remaining = 1
+		double_jump_pose_time = 0.0
 
 	var desired = wish_dir * speed
 	var accel = AIR_ACCEL * air_mult
@@ -397,7 +414,10 @@ func _handle_movement(delta, wish_dir):
 		wall_tangent -= wall_ride_normal * wall_tangent.dot(wall_ride_normal)
 		if wall_tangent.length() > 0.1:
 			facing_direction = wall_tangent.normalized()
-	if facing_direction.length() > 0.05:
+	if (
+		facing_direction.length() > 0.05
+		and not brc_traversal_root_override_active
+	):
 		var target_yaw = atan2(-facing_direction.x, -facing_direction.z)
 		visual_root.rotation.y = lerp_angle(visual_root.rotation.y, target_yaw, min(1.0, 13.0 * delta))
 
@@ -423,10 +443,25 @@ func _handle_movement(delta, wish_dir):
 		elif is_on_floor():
 			velocity.y = JUMP_SPEED * lerp(0.96, 1.05, air_mult - 0.82)
 		elif wall_normal_memory.length() > 0.1:
+			# Animation metadata only: preserve the wall side before the coyote
+			# normal is cleared so the real BRC rig can mirror its push-off pose.
+			wall_ride_normal = wall_normal_memory
 			velocity.x = wall_normal_memory.x * WALL_JUMP_OUT + desired.x * 0.35
 			velocity.z = wall_normal_memory.z * WALL_JUMP_OUT + desired.z * 0.35
 			velocity.y = WALL_JUMP_UP
+			wall_jump_pose_time = 0.30
 			wall_normal_memory = Vector3.ZERO
+		elif zip_pose_time <= 0.0 and air_jumps_remaining > 0:
+			# One clean air jump per ground contact. Preserve all horizontal
+			# momentum; only the vertical component gets the Rivals-like upward pop.
+			air_jumps_remaining -= 1
+			velocity.y = maxf(
+				velocity.y,
+				DOUBLE_JUMP_SPEED * lerp(0.96, 1.05, air_mult - 0.82)
+			)
+			double_jump_pose_time = DOUBLE_JUMP_POSE_DURATION
+			double_jump_sequence += 1
+			camera_kick = maxf(camera_kick, 0.32)
 
 func _handle_grapple_input():
 	if Input.is_action_just_pressed("grapple"):
@@ -778,12 +813,17 @@ func _animate_character(delta):
 		run_time += delta * clamp(horizontal_speed, 8.0, 15.0)
 		var wall_stride = sin(run_time) * 0.72
 		var ride_side = sign(wall_ride_normal.dot(visual_root.global_transform.basis.x))
-		root_pose.z = ride_side * 0.30
+		# The wall-side hand and planted shoe support the pose. Lean the upper
+		# body modestly away from the facade, as in a billboard wall run, rather
+		# than rotating the whole model into the wall like a climbing pose.
+		root_pose.x = -0.20
+		root_pose.z = -ride_side * 0.18
 		torso_pose = Vector3(-0.15, 0.0, ride_side * 0.32)
 		arm_l = Vector3(-wall_stride * 0.72, 0.0, -0.22)
 		arm_r = Vector3(wall_stride * 0.72, 0.0, 0.22)
 		leg_l.x = wall_stride
 		leg_r.x = -wall_stride
+		body_bob = (1.0 - absf(wall_stride / 0.72)) * 0.045 - 0.015
 		pose_speed = 14.0
 	elif wall_jump_pose_time > 0.0:
 		root_pose.x = -0.24
@@ -830,11 +870,34 @@ func _blend_procedural_pose(delta, blend_speed, root_pose, torso_pose, arm_l, ar
 	var wall_offset = Vector3.ZERO
 	if wall_riding:
 		wall_offset = wall_ride_normal * wall_visual_offset
-	visual_root.rotation.x = lerp_angle(visual_root.rotation.x, root_pose.x, amount)
+	var target_root_pitch = (
+		brc_traversal_root_pitch
+		if brc_traversal_root_override_active
+		else root_pose.x
+	)
+	visual_root.rotation.x = lerp_angle(
+		visual_root.rotation.x,
+		target_root_pitch,
+		amount
+	)
 	visual_root.rotation.z = lerp_angle(visual_root.rotation.z, root_pose.z, amount)
+	if brc_traversal_root_override_active:
+		visual_root.rotation.y = lerp_angle(
+			visual_root.rotation.y,
+			brc_traversal_root_yaw,
+			amount
+		)
 	visual_root.position.x = lerp(visual_root.position.x, wall_offset.x, amount)
 	visual_root.position.y = lerp(visual_root.position.y, body_bob, amount)
 	visual_root.position.z = lerp(visual_root.position.z, wall_offset.z, amount)
+
+	# The imported BRC mesh is driven by its real Skeleton3D controller. These
+	# compatibility proxies are intentionally inert in that path; retaining
+	# the visible root transform above preserves lean, wall clearance, bob and
+	# Violet's presentation spin without a second limb-animation owner.
+	if visual_root.get_node_or_null("SpideyRigController") != null:
+		return
+
 	torso_root.rotation = torso_root.rotation.lerp(torso_pose, amount)
 	left_arm.rotation = left_arm.rotation.lerp(arm_l, amount)
 	right_arm.rotation = right_arm.rotation.lerp(arm_r, amount)
@@ -846,6 +909,8 @@ func _respawn(fall_damage):
 	wall_riding = false
 	global_position = spawn_position
 	velocity = Vector3.ZERO
+	air_jumps_remaining = 1
+	double_jump_pose_time = 0.0
 	if fall_damage:
 		health = max(35, health - 20)
 	else:

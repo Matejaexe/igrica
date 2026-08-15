@@ -1,0 +1,40 @@
+Build Igrica into a polished Godot 4.7 stylized urban traversal/action game
+whose movement is fun enough to be the main toy.
+
+The game should combine original PS2-era low-poly/comic readability with the
+street-culture energy of Bomb Rush Cyberfunk and Jet Set Radio, while using the
+best design lessons from classic Spider-Man traversal: real world-relative web
+anchors, momentum-sensitive swing arcs, satisfying release timing, fast wall
+transitions, web zip, and expressive aerial movement.
+
+The player should be able to naturally chain:
+run -> jump -> web swing -> high-speed release -> aerial flip/roll -> web zip ->
+wall run -> wall jump -> another swing, without unnecessary animation locks or
+loss of earned momentum.
+
+Preserve the known-good BRC Spider prototype model while the movement system is
+developed. Treat the body as articulated joint chains and judge final animation
+by actual joint positions/silhouette. Running arms should be compact and
+athletic, not T-posed; forearms should not twist randomly; hands should not clip
+the torso. Locomotion must loop continuously without sliding.
+
+Build the world as four strong traversal identities: contiguous MDK3 +
+Jerković, and bridge-connected MLD + Pančevo. The city should be dense,
+vertical, colorful, graffiti-heavy, and designed around swing corridors,
+rooftop flow, alleys, wall-run surfaces, landmark towers, industrial routes,
+and trick spaces rather than realism for its own sake.
+
+Develop an original main menu/UI/lobby identity using Y2K street-graphic energy,
+bold readable shapes, graffiti/sticker language, a living 3D hideout/skyline,
+and strong character presentation. Character select should show rotating 3D
+models, real gameplay stats, archetypes, abilities, strengths and weaknesses.
+
+Keep graffiti, jungle/DnB audio, combat, a traversal-focused boss, and future
+2–4 player co-op aligned with the same movement-first identity.
+
+References are for principles, not copying. Do not copy proprietary assets,
+characters, maps, logos, UI, graffiti, or animations.
+
+Always inspect the current repository and GAME_DESIGN.md before editing. Avoid
+stacking conflicting systems. Preserve unrelated working gameplay and user
+changes. Validate changes. Do not commit or push unless explicitly requested.

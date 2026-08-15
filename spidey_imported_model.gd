@@ -17,12 +17,19 @@ const MODEL_BIND_HALF_WIDTH: float = 0.596
 const MODEL_SCALED_HALF_WIDTH: float = MODEL_BIND_HALF_WIDTH * MODEL_SCALE
 
 static func build(parent: Node3D, data: Dictionary) -> Dictionary:
+    # Traversal tricks rotate only the visible imported character around its
+    # own presentation pivot. The CharacterBody/visual root remains available
+    # for movement-facing, wall clearance and camera-safe traversal lean.
+    var trick_pivot := Node3D.new()
+    trick_pivot.name = "BRCTraversalTrickPivot"
+    parent.add_child(trick_pivot)
+
     var model: Node3D = MODEL.instantiate() as Node3D
     model.name = "BRCSpidey"
     model.position = Vector3(0.0, MODEL_Y_OFFSET, 0.0)
     model.rotation.y = PI
     model.scale = Vector3.ONE * MODEL_SCALE
-    parent.add_child(model)
+    trick_pivot.add_child(model)
 
     var skeleton: Skeleton3D = _find_skeleton(model)
     var character_id: String = String(data.get("id", "crimson"))
@@ -70,7 +77,8 @@ static func build(parent: Node3D, data: Dictionary) -> Dictionary:
             skeleton,
             parent.get_parent(),
             web_origin_l,
-            web_origin_r
+            web_origin_r,
+            trick_pivot
         )
     else:
         push_warning("BRC Spidey model loaded, but Skeleton3D was not found.")

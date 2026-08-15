@@ -1,330 +1,218 @@
-<<'EOF'
 # Igrica — Codex Project Instructions
 
-## Project
+## Authority order
 
-This is a Godot 4.7.x 3D platformer/action game.
+When instructions conflict, use this order:
 
-The current main playable character uses the imported BRC-style Spider model.
+1. The user's current explicit request.
+2. `GAME_DESIGN.md` for established game-design decisions.
+3. This `AGENTS.md`.
+4. Detailed documents under `docs/codex/`.
+5. Older README/comments/prototype behavior.
 
-Important character model:
+Do not silently change established game direction because the current prototype
+happens to behave differently.
 
-- `res://models/spidey/spidey_funk_alt_v2.glb`
+## Project identity
 
-This GLB currently has correct mesh, skinning and bind/rest pose.
+Igrica / working title **Spider City** is a Godot 4.7.x stylized 3D urban
+traversal/action-platformer with future 2–4 player co-op.
 
-DO NOT modify, regenerate or replace this GLB unless explicitly requested.
+The game's visual and movement DNA combines:
 
----
+- PS2-era low-poly readability
+- Bomb Rush Cyberfunk street-culture energy
+- Jet Set Radio graffiti/cel-shaded urban attitude
+- the physical, momentum-sensitive traversal philosophy of classic
+  Spider-Man 2 (2004)
+- comic-book readability and fast traversal ideas associated with
+  Ultimate Spider-Man (2005)
+- modern traversal polish only where it helps flow: seamless wall-run / swing /
+  zip transitions and optional aerial trick presentation
 
-## General workflow
+These are references, not licenses to copy assets, characters, UI, maps,
+animations, logos, or exact copyrighted designs.
 
-Before changing anything:
+The final game must develop its own identity.
 
-1. Inspect the existing implementation.
-2. Understand how the current scene/script is connected.
-3. Prefer modifying the existing system over creating another competing system.
-4. Check relevant Godot APIs before inventing custom math.
-5. Preserve unrelated gameplay systems.
+## Read before relevant tasks
 
-After changes:
+### Whole game / architecture
+- `docs/codex/MASTER_GAME_VISION.md`
+- `docs/codex/REFERENCE_DNA.md`
+- `docs/codex/CODEX_WORKFLOW.md`
 
-- run `git diff --check`
-- inspect the diff
-- report exactly which files changed
-- do NOT commit
-- do NOT push
-- do NOT change branches unless explicitly requested
+### Visuals / city / environment
+- `docs/codex/VISUAL_STYLE_BIBLE.md`
+- `docs/codex/CITY_WORLD_BIBLE.md`
 
-Never use `git reset --hard`, destructive checkout/restore, or delete user work without explicit permission.
+### Character / animation / traversal
+- `docs/codex/CHARACTER_RIG.md`
+- `docs/codex/HUMAN_LOCOMOTION.md`
+- `docs/codex/TRAVERSAL_AND_TRICKS.md`
+- `docs/codex/GODOT_ANIMATION_NOTES.md`
+- `docs/codex/ANIMATION_DEBUG_CHECKLIST.md`
 
----
+### UI / menus / lobby
+- `docs/codex/UI_MENU_BIBLE.md`
+- `docs/codex/CHARACTERS_MULTIPLAYER.md`
 
-# Character rig rules
+### Graffiti / combat / audio
+- `docs/codex/GRAFFITI_COMBAT_AUDIO.md`
 
-Treat the character as connected articulated joint chains.
+### Research URLs
+- `docs/codex/REFERENCES.md`
 
-Do NOT think of an entire arm or leg as one rigid stick.
+## Protected BRC Spider model
 
-## Torso
+Known-good imported model:
 
-hips -> lower spine -> upper spine -> neck -> head
+```text
+res://models/spidey/spidey_funk_alt_v2.glb
+```
 
-BRC bones:
+The current mesh/skin/rest/bind relationship is considered known-good.
 
-- `hips`
-- `s1`
-- `s2`
-- `neck`
-- `head`
+DO NOT modify, regenerate, reskin, or replace this GLB unless explicitly asked.
 
-## Left arm
+Fix animation in the animation/retarget/IK/modifier layer.
 
-shoulder -> upper arm -> elbow -> forearm -> wrist/hand
+## Current donor
 
-BRC bones:
+```text
+res://third_party/godot_platformer/player.glb
+```
 
-- `shldl`
-- `arm1l`
-- `arm2l`
-- `handl`
+Prefer native Godot retargeting/modifiers where appropriate.
 
-## Right arm
+## Core movement philosophy
 
-- `shldr`
-- `arm1r`
-- `arm2r`
-- `handr`
+Movement is the primary gameplay pillar.
 
-## Left leg
+The player should enjoy moving through the city even with no mission active.
 
-hip -> thigh -> knee -> shin -> ankle/foot -> toes
+Priorities:
 
-- `leg1l`
-- `leg2l`
-- `footl`
-- `toesl`
+1. momentum
+2. flow
+3. readable player control
+4. stylish animation
+5. meaningful traversal choices
+6. fast transitions between movement states
+7. forgiving enough to learn, deep enough to master
 
-## Right leg
+Physics and animation have different jobs:
 
-- `leg1r`
-- `leg2r`
-- `footr`
-- `toesr`
+- physics determines where the player actually goes
+- animation sells speed, weight, style, and intent
 
-Always judge animation by actual resulting joint positions and silhouette,
-not just Euler/quaternion values.
+Do not let a cosmetic trick animation destroy earned momentum.
 
----
+## Core controls
 
-# Important rig facts
+Established target:
 
-Approximate model orientation:
+```text
+WASD   fast default movement; no sprint button
+Shift  web swing / web pump
+Space  jump / wall jump / swing release
+Q      web zip
+LMB    normal combo
+RMB    character-specific special
+Mouse  camera / aiming
+```
 
-- +Y = up
-- +Z = model forward
-- +X = character left
+## World
 
-The imported Godot Bone Pose includes Bone Rest.
+Main contiguous landmass:
 
-DO NOT assume `Quaternion.IDENTITY` is the correct neutral pose.
+```text
+MDK3 <-> Jerković
+```
 
-Use the imported bone rest as the neutral/reference pose.
+No loading screen between them.
 
----
+Bridge-connected side areas:
 
-# Animation architecture
+```text
+MLD
+Pančevo
+```
 
-Prefer Godot-native animation systems:
+Bridges may hide background streaming/loading.
 
-- `AnimationPlayer`
-- `AnimationTree`
-- `Skeleton3D`
-- `SkeletonModifier3D`
-- `SkeletonProfileHumanoid`
-- `RetargetModifier3D`
-- `TwoBoneIK3D`
-- `BoneAttachment3D`
+## Character placeholders
 
-Avoid custom cross-rig quaternion retargeting if Godot native retargeting can do it.
+Current archetypes:
 
-The current donor locomotion source is the official Godot 3D Platformer model:
+```text
+CRIMSON — Swing / Acrobat
+AZURE   — Tech / Zip
+VIOLET  — Trickster / Air
+GOLD    — Bruiser / Power
+```
 
-- `res://third_party/godot_platformer/player.glb`
+They are temporary Spider-inspired placeholders and are intended to become
+original characters later.
 
-Ground locomotion may use its authored:
+## Git safety
 
-- idle
-- walk
-- run
-- jump
-- falling
+The working tree can contain important user work.
 
-with native retargeting to the BRC skeleton.
+Unless explicitly requested, never:
 
-Make sure locomotion clips LOOP continuously.
+- commit
+- push
+- switch branch
+- hard reset
+- destructive restore/checkout
+- delete unrelated files
 
-The character must never:
+Before editing:
 
-1. animate for ~1–2 seconds
-2. stop animating
-3. continue moving by sliding
+```bash
+git status --short
+```
 
-If a looping locomotion animation unexpectedly stops, investigate and fix the
-loop/playback state.
+After editing:
 
----
+```bash
+git diff --check
+git status --short
+git diff
+```
 
-# Running animation
+## Engineering behavior
 
-The desired run is stylized Spider-Man / BRC-like.
+Before changing a system:
 
-## Arms
+1. inspect the CURRENT implementation
+2. identify all systems that already affect it
+3. identify final ownership/order
+4. avoid stacking a new system over conflicting obsolete systems
+5. prefer the smallest robust integration
+6. preserve unrelated gameplay
+7. validate in the actual game when possible
 
-For the current simple run target:
+For animation, never judge only by quaternion numbers. Judge final joint
+positions and silhouette.
 
-- elbows should remain approximately 90 degrees
-- shoulders should remain relaxed
-- arms move primarily FORWARD and BACKWARD
-- do NOT rotate arms inward/outward excessively
-- do NOT create a T-pose / bird-wing silhouette
-- wrists should not randomly twist
-- hands must never pass through the torso
-- hands should remain slightly outside the torso
-- left/right arm swing should oppose the legs naturally
+For city generation, never judge only by building count. Judge skyline,
+traversal routes, repetition, and performance.
 
-For debugging:
+## Do not over-copy references
 
-Do not blindly flip rotation signs.
+When using BRC, JSR, Spider-Man, or other games as references:
 
-Inspect actual model-space positions of:
+Extract principles such as:
 
-- shoulder
-- elbow
-- hand
+- rhythm
+- silhouette
+- movement flow
+- city density
+- color blocking
+- UI energy
+- transition philosophy
 
-If the elbow and hand are in bad positions, solve the joint geometry instead.
-
-## Legs
-
-Running must visibly use:
-
-hip -> knee -> ankle -> foot
-
-Requirements:
-
-- knees visibly bend
-- heel recovery should occur
-- feet must not stay permanently on the toes
-- legs must not look like rigid sticks
-
----
-
-# Idle pose
-
-Idle should look like a normal relaxed person.
-
-Desired characteristics:
-
-- elbows lower than the previous raised-arm pose
-- arms relaxed beside torso
-- hands safely outside torso
-- legs slightly apart
-- knees not perfectly locked
-- feet placed naturally rather than both exactly on the center line
-
-Do not spread the legs with arbitrary bone-axis guesses if IK/target positions
-can solve the stance more reliably.
-
----
-
-# IK rules
-
-For arms, reason using:
-
-- hand target
-- elbow pole
-- shoulder position
-
-For legs, reason using:
-
-- foot target
-- knee pole
-- hip position
-
-When using `TwoBoneIK3D`:
-
-- use anatomical root -> middle -> end chains
-- ensure pole targets bend the joint in the expected anatomical direction
-- avoid targets that force limbs through the torso
-- inspect real resulting joint positions
-
----
-
-# Web swing
-
-Existing movement/web physics must be preserved unless explicitly requested.
-
-Web hand selection:
-
-- grapple left of camera -> left hand
-- grapple right of camera -> right hand
-- near center -> alternate hand
-
-Visible web should originate from the selected hand.
-
-Prefer `BoneAttachment3D` or hand-bone-derived origins.
-
----
-
-# Gameplay preservation
-
-Do not break or rewrite unrelated systems while fixing animation.
-
-Preserve:
-
-- player physics
-- acceleration
-- jump
-- web swing
-- zip
-- wall ride
-- camera
-- combat
-- graffiti
-- multiplayer-related code
-- audio
-
-Animation should follow gameplay physics, not replace it.
-
----
-
-# Visual target
-
-Style:
-
-- PS2 / low-poly
-- Bomb Rush Cyberfunk / Jet Set Radio inspiration
-- readable exaggerated silhouettes
-
-The player prefers animation that looks intentionally authored rather than
-overly procedural.
-
-When a screenshot/video reference is supplied, prioritize the visible desired
-pose over abstract assumptions.
-
----
-
-# Debugging expectations
-
-When fixing character animation:
-
-1. inspect bone names and hierarchy
-2. inspect current rest transforms
-3. inspect existing animation/IK code
-4. reproduce the issue
-5. make the smallest architectural fix possible
-6. validate visually if possible
-7. check continuous animation looping
-8. run `git diff --check`
-
-Do not repeatedly add new animation systems on top of broken old systems.
-
-Remove or disable conflicting logic when replacing it.
-
----
-
-# Git
-
-The repository may contain uncommitted user work.
-
-Treat all unrelated modifications as important user work.
-
-Never commit or push unless explicitly requested.
-
-Never overwrite unrelated changes.
-
-Before editing a file that already has modifications, inspect the current
-version first.
-
-EOF
+Do not reproduce exact maps, characters, logos, graffiti, menus, textures,
+animations, or proprietary assets.

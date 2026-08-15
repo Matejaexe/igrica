@@ -12,6 +12,24 @@ const GRAFFITI_MANAGER_SCRIPT = preload("res://graffiti_manager.gd")
 const PLAYER_SFX_SCRIPT = preload("res://player_sfx.gd")
 const TITLE_LOGO = preload("res://art/ui/spider_city_logo.svg")
 
+# Traversal city dimensions and road hierarchy. The original mission core is
+# kept around the origin; deterministic outer districts extend the playable
+# skyline without changing any movement code.
+const CITY_HALF_EXTENT = 270.0
+const CITY_ROADS_X = [-188.0, -116.0, -45.0, 0.0, 45.0, 112.0, 184.0]
+const CITY_ROADS_Z = [-184.0, -108.0, -45.0, 0.0, 45.0, 116.0, 190.0]
+# Total collidable building volumes, including the legacy StartTower.
+const CITY_BUILDING_TARGET = 132
+const CITY_LAYOUT_SEED = 0x5C17C1
+const CITY_EDGE_MARGIN = 10.0
+const CITY_BLOCK_SIDEWALK = 2.6
+
+const CITY_COLORS = [
+    Color("#29384f"), Color("#34445c"), Color("#3e5069"),
+    Color("#485b75"), Color("#52647c"), Color("#303f58"),
+    Color("#43536b"), Color("#27354a")
+]
+
 var player = null
 var game_state = "menu"
 var mission = 0
@@ -34,6 +52,15 @@ var audio_overlay = null
 var master_slider = null
 var music_slider = null
 var sfx_slider = null
+var material_cache: Dictionary = {}
+var city_root: Node3D = null
+var city_infrastructure: Node3D = null
+var city_districts: Dictionary = {}
+var city_building_count: int = 0
+var city_height_min: float = INF
+var city_height_max: float = 0.0
+var city_tier_counts: Dictionary = {}
+var city_heights: Array[float] = []
 
 var title_overlay = null
 var mission_label = null
@@ -62,7 +89,7 @@ func _build_world_decorator():
     var decorator = WORLD_DECORATOR_SCRIPT.new()
     decorator.name = "WorldDecorator"
     add_child(decorator)
-    decorator.decorate_city(self)
+    decorator.decorate_city(city_root if city_root != null else self)
 
 func _build_graffiti():
     var graffiti_manager = GRAFFITI_MANAGER_SCRIPT.new()
@@ -182,21 +209,54 @@ func _build_environment():
     add_child(fill)
 
 func _build_ground_and_city():
-    _add_static_box("Ground", Vector3(0, -1.5, 0), Vector3(240, 3, 240), Color("#273141"))
+    _build_city_hierarchy()
+    city_building_count = 0
+    city_height_min = INF
+    city_height_max = 0.0
+    city_tier_counts.clear()
+    city_heights.clear()
 
-    # Four broad crossing roads establish recognizable city blocks.
+    _add_static_box(
+        "Ground",
+        Vector3(0, -1.5, 0),
+        Vector3(CITY_HALF_EXTENT * 2.0, 3, CITY_HALF_EXTENT * 2.0),
+        Color("#273141"),
+        city_infrastructure
+    )
+
+    # An asymmetric road hierarchy keeps the old central routes intact while
+    # producing narrow inner streets and broad outer traversal avenues.
     var road_color = Color("#191f2a")
-    for z in [-45.0, 0.0, 45.0]:
-        _add_visual_box("RoadX_%s" % str(z), Vector3(0, 0.03, z), Vector3(240, 0.09, 13), road_color, false)
-    for x in [-45.0, 0.0, 45.0]:
-        _add_visual_box("RoadZ_%s" % str(x), Vector3(x, 0.03, 0), Vector3(13, 0.09, 240), road_color, false)
+    for z_value in CITY_ROADS_Z:
+        var z_road: float = float(z_value)
+        var road_width_x: float = _road_width(z_road)
+        _add_visual_box(
+            "RoadX_%d" % int(z_road),
+            Vector3(0, 0.03, z_road),
+            Vector3(CITY_HALF_EXTENT * 2.0, 0.09, road_width_x),
+            road_color,
+            false,
+            city_infrastructure
+        )
+    var road_z_segments: Array[Vector2] = _road_segments_between(
+        CITY_ROADS_Z
+    )
+    for x_value in CITY_ROADS_X:
+        var x_road: float = float(x_value)
+        var road_width_z: float = _road_width(x_road)
+        for segment_index in range(road_z_segments.size()):
+            var segment: Vector2 = road_z_segments[segment_index]
+            var segment_length: float = segment.y - segment.x
+            _add_visual_box(
+                "RoadZ_%d_%02d" % [int(x_road), segment_index],
+                Vector3(x_road, 0.03, (segment.x + segment.y) * 0.5),
+                Vector3(road_width_z, 0.09, segment_length),
+                road_color,
+                false,
+                city_infrastructure
+            )
 
-    # Lane paint.
-    for k in range(-5, 6):
-        for z in [-45.0, 0.0, 45.0]:
-            _add_visual_box("LaneX_%d_%d" % [int(z), k], Vector3(k * 19.0, 0.07, z), Vector3(7.5, 0.03, 0.28), Color("#e8d678"), true)
-        for x in [-45.0, 0.0, 45.0]:
-            _add_visual_box("LaneZ_%d_%d" % [int(x), k], Vector3(x, 0.07, k * 19.0), Vector3(0.28, 0.03, 7.5), Color("#e8d678"), true)
+    _add_avenue_lane_paint()
 
     # Main playable towers. Sizes intentionally vary so good swing anchors differ from bad ones.
     var specs = [
@@ -229,55 +289,579 @@ func _build_ground_and_city():
         [Vector3(88, 16, 82), Vector3(18,32,20), Color("#465670")]
     ]
 
+    var occupied: Array[Rect2] = []
     var index = 0
     for spec in specs:
-        _add_building("Building_%02d" % index, spec[0], spec[1], spec[2])
+        _add_building(
+            "Building_%03d" % index,
+            spec[0],
+            spec[1],
+            spec[2],
+            _tier_for_height(float(spec[1].y)),
+            index % 3,
+            true
+        )
+        occupied.append(_building_rect(spec[0], spec[1]))
         index += 1
 
     # Start building.
-    _add_building("StartTower", Vector3(0, 8, 0), Vector3(18,16,18), Color("#586a82"))
+    var start_position = Vector3(0, 8, 0)
+    var start_size = Vector3(18, 16, 18)
+    _add_building(
+        "StartTower",
+        start_position,
+        start_size,
+        Color("#586a82"),
+        "low",
+        2,
+        true
+    )
+    occupied.append(_building_rect(start_position, start_size))
+    # Keep all legacy mission, ring, drone, cable, and graffiti routes free of
+    # newly generated geometry.
+    occupied.append(Rect2(Vector2(-106, -100), Vector2(212, 200)))
 
-    # Small park regions and rooftop props make the city less box-like.
-    _add_visual_box("ParkA", Vector3(-84, 0.08, 66), Vector3(26,0.12,20), Color("#355b43"), false)
-    _add_visual_box("ParkB", Vector3(76, 0.08, -2), Vector3(26,0.12,22), Color("#3b6248"), false)
+    # Preserve the known-good prototype parks and reserve several larger
+    # setbacks so the expanded districts have landmarks and breathing room.
+    _add_visual_box("ParkA", Vector3(-84, 0.08, 66), Vector3(26,0.12,20), Color("#355b43"), false, city_infrastructure)
+    _add_visual_box("ParkB", Vector3(76, 0.08, -2), Vector3(26,0.12,22), Color("#3b6248"), false, city_infrastructure)
+    var outer_open_spaces: Array = [
+        [Vector3(-150, 0.08, 78), Vector3(32, 0.12, 26)],
+        [Vector3(148, 0.08, 76), Vector3(38, 0.12, 30)],
+        [Vector3(-78, 0.08, -148), Vector3(30, 0.12, 24)]
+    ]
+    for space_index in range(outer_open_spaces.size()):
+        var space: Array = outer_open_spaces[space_index]
+        _add_visual_box(
+            "OuterPlaza_%02d" % space_index,
+            space[0],
+            space[1],
+            Color("#344f43").lightened(float(space_index) * 0.025),
+            false,
+            city_infrastructure
+        )
+        occupied.append(_building_rect(space[0], space[1]))
+
+    index = _add_skyline_landmarks(index, occupied)
+    _add_outer_city_buildings(index, occupied)
     _add_street_lights()
     _add_billboards()
+    _report_city_generation()
 
-func _add_building(node_name, pos, size, color):
-    var body = _add_static_box(node_name, pos, size, color)
+
+func _build_city_hierarchy() -> void:
+    city_root = Node3D.new()
+    city_root.name = "City"
+    add_child(city_root)
+
+    city_infrastructure = Node3D.new()
+    city_infrastructure.name = "Infrastructure"
+    city_root.add_child(city_infrastructure)
+
+    city_districts.clear()
+    for district_name in [
+        "CentralDistrict",
+        "NorthDistrict",
+        "SouthDistrict",
+        "EastDistrict",
+        "WestDistrict",
+        "SkylineLandmarks"
+    ]:
+        var district := Node3D.new()
+        district.name = district_name
+        city_root.add_child(district)
+        city_districts[district_name] = district
+
+
+func _district_parent_for(position: Vector3, tier: String) -> Node3D:
+    if tier == "landmark":
+        return city_districts.get("SkylineLandmarks", city_root) as Node3D
+    if absf(position.x) <= 110.0 and absf(position.z) <= 110.0:
+        return city_districts.get("CentralDistrict", city_root) as Node3D
+    if absf(position.x) > absf(position.z):
+        var east_west := "EastDistrict" if position.x >= 0.0 else "WestDistrict"
+        return city_districts.get(east_west, city_root) as Node3D
+    var north_south := "NorthDistrict" if position.z >= 0.0 else "SouthDistrict"
+    return city_districts.get(north_south, city_root) as Node3D
+
+
+func _road_width(coordinate: float) -> float:
+    if absf(coordinate) < 0.1:
+        return 22.0
+    if absf(coordinate) > 175.0:
+        return 18.0
+    if absf(coordinate) > 100.0:
+        return 15.0
+    return 13.0
+
+
+func _road_segments_between(crossing_roads: Array) -> Array[Vector2]:
+    var segments: Array[Vector2] = []
+    var cursor: float = -CITY_HALF_EXTENT
+    for road_value in crossing_roads:
+        var coordinate: float = float(road_value)
+        var half_width: float = _road_width(coordinate) * 0.5
+        var segment_end: float = coordinate - half_width
+        if segment_end - cursor > 0.1:
+            segments.append(Vector2(cursor, segment_end))
+        cursor = coordinate + half_width
+    if CITY_HALF_EXTENT - cursor > 0.1:
+        segments.append(Vector2(cursor, CITY_HALF_EXTENT))
+    return segments
+
+
+func _add_avenue_lane_paint() -> void:
+    var paint := Color("#e8d678")
+    var segment_count: int = 25
+    var segment_step: float = CITY_HALF_EXTENT * 2.0 / float(segment_count)
+    var lane_mesh := BoxMesh.new()
+    lane_mesh.size = Vector3(segment_step * 0.42, 0.03, 0.24)
+
+    var lane_multimesh := MultiMesh.new()
+    lane_multimesh.transform_format = MultiMesh.TRANSFORM_3D
+    lane_multimesh.mesh = lane_mesh
+    lane_multimesh.instance_count = (
+        segment_count * (CITY_ROADS_X.size() + CITY_ROADS_Z.size())
+    )
+
+    var lane_index: int = 0
+    for segment in range(segment_count):
+        var along: float = -CITY_HALF_EXTENT + (float(segment) + 0.5) * segment_step
+        for z_value in CITY_ROADS_Z:
+            var z: float = float(z_value)
+            lane_multimesh.set_instance_transform(
+                lane_index,
+                Transform3D(Basis.IDENTITY, Vector3(along, 0.07, z))
+            )
+            lane_index += 1
+        for x_value in CITY_ROADS_X:
+            var x: float = float(x_value)
+            lane_multimesh.set_instance_transform(
+                lane_index,
+                Transform3D(
+                    Basis(Vector3.UP, PI * 0.5),
+                    Vector3(x, 0.075, along)
+                )
+            )
+            lane_index += 1
+
+    var lane_instance := MultiMeshInstance3D.new()
+    lane_instance.name = "AvenueLanePaint"
+    lane_instance.multimesh = lane_multimesh
+    lane_instance.material_override = _make_material(paint, true)
+    lane_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+    city_infrastructure.add_child(lane_instance)
+
+
+func _add_skyline_landmarks(index: int, occupied: Array[Rect2]) -> int:
+    # Hand-placed skyline anchors sit in different districts so orientation is
+    # readable from anywhere in the expanded city. Nearby procedural towers
+    # create climbable height gradients toward them.
+    var landmarks: Array = [
+        [Vector2(-223, -144), Vector3(30, 168, 32), Color("#202f47")],
+        [Vector2(220, 148), Vector3(32, 190, 30), Color("#24334c")],
+        [Vector2(-80, 153), Vector3(28, 146, 26), Color("#2b3952")],
+        [Vector2(145, -146), Vector3(34, 158, 30), Color("#213049")],
+        [Vector2(222, 226), Vector3(28, 136, 28), Color("#2d3c55")]
+    ]
+    for landmark_value in landmarks:
+        var landmark: Array = landmark_value
+        var ground_position: Vector2 = landmark[0]
+        var size: Vector3 = landmark[1]
+        var position := Vector3(ground_position.x, size.y * 0.5, ground_position.y)
+        _add_building(
+            "Building_%03d_Landmark" % index,
+            position,
+            size,
+            landmark[2],
+            "landmark",
+            4,
+            false
+        )
+        occupied.append(_building_rect(position, size))
+        index += 1
+    return index
+
+
+func _add_outer_city_buildings(start_index: int, occupied: Array[Rect2]) -> void:
+    var rng := RandomNumberGenerator.new()
+    rng.seed = CITY_LAYOUT_SEED
+    var index: int = start_index
+    var blocks: Array[Rect2] = _city_block_rects()
+    _shuffle_with_rng(blocks, rng)
+
+    # Lots are derived from road-bounded blocks, then consumed in layers. The
+    # first pass spreads one building across many blocks before denser blocks
+    # receive their alley-separated second, third, or fourth volume.
+    var lot_groups: Array = []
+    var max_lot_count: int = 0
+    for block in blocks:
+        var lots: Array[Rect2] = _lots_for_block(block, rng)
+        lot_groups.append(lots)
+        max_lot_count = maxi(max_lot_count, lots.size())
+
+    for lot_layer in range(max_lot_count):
+        for lots_value in lot_groups:
+            if city_building_count >= CITY_BUILDING_TARGET:
+                break
+            var lots: Array[Rect2] = lots_value
+            if lot_layer >= lots.size():
+                continue
+            if _try_add_city_lot(index, lots[lot_layer], rng, occupied):
+                index += 1
+        if city_building_count >= CITY_BUILDING_TARGET:
+            break
+
+    if city_building_count < CITY_BUILDING_TARGET:
+        push_warning(
+            "[CITY] Road-block packing stopped at %d of %d buildings." % [
+                city_building_count,
+                CITY_BUILDING_TARGET
+            ]
+        )
+
+
+func _buildable_axis_intervals(road_coordinates: Array) -> Array[Vector2]:
+    var intervals: Array[Vector2] = []
+    var cursor: float = -CITY_HALF_EXTENT + CITY_EDGE_MARGIN
+    for road_value in road_coordinates:
+        var coordinate: float = float(road_value)
+        var road_edge: float = _road_width(coordinate) * 0.5
+        var interval_end: float = coordinate - road_edge - CITY_BLOCK_SIDEWALK
+        if interval_end - cursor >= 15.0:
+            intervals.append(Vector2(cursor, interval_end))
+        cursor = coordinate + road_edge + CITY_BLOCK_SIDEWALK
+
+    var city_end: float = CITY_HALF_EXTENT - CITY_EDGE_MARGIN
+    if city_end - cursor >= 15.0:
+        intervals.append(Vector2(cursor, city_end))
+    return intervals
+
+
+func _city_block_rects() -> Array[Rect2]:
+    var x_intervals: Array[Vector2] = _buildable_axis_intervals(CITY_ROADS_X)
+    var z_intervals: Array[Vector2] = _buildable_axis_intervals(CITY_ROADS_Z)
+    var blocks: Array[Rect2] = []
+    for x_interval in x_intervals:
+        for z_interval in z_intervals:
+            blocks.append(Rect2(
+                Vector2(x_interval.x, z_interval.x),
+                Vector2(
+                    x_interval.y - x_interval.x,
+                    z_interval.y - z_interval.x
+                )
+            ))
+    return blocks
+
+
+func _lots_for_block(
+    block: Rect2,
+    rng: RandomNumberGenerator
+) -> Array[Rect2]:
+    var edge_inset: float = rng.randf_range(2.0, 4.2)
+    var inner: Rect2 = block.grow(-edge_inset)
+    if inner.size.x < 12.0 or inner.size.y < 12.0:
+        return []
+
+    var columns: int = 1
+    var rows: int = 1
+    if inner.size.x >= 66.0:
+        columns = 3
+    elif inner.size.x >= 39.0:
+        columns = 2
+    if inner.size.y >= 66.0:
+        rows = 3
+    elif inner.size.y >= 39.0:
+        rows = 2
+
+    # Occasional broad slabs leave a longer clear roof/swing edge and stop the
+    # road grid from producing the same subdivision in every block.
+    if columns > 1 and rows > 1 and rng.randf() < 0.12:
+        if rng.randf() < 0.5:
+            columns = 1
+        else:
+            rows = 1
+
+    var alley_x: float = rng.randf_range(4.0, 7.2) if columns > 1 else 0.0
+    var alley_z: float = rng.randf_range(4.0, 7.2) if rows > 1 else 0.0
+    var cell_width: float = (
+        inner.size.x - alley_x * float(columns - 1)
+    ) / float(columns)
+    var cell_depth: float = (
+        inner.size.y - alley_z * float(rows - 1)
+    ) / float(rows)
+    var lots: Array[Rect2] = []
+
+    for row in range(rows):
+        for column in range(columns):
+            var cell_position := inner.position + Vector2(
+                float(column) * (cell_width + alley_x),
+                float(row) * (cell_depth + alley_z)
+            )
+            var inset_left: float = rng.randf_range(0.8, 2.8)
+            var inset_right: float = rng.randf_range(0.8, 2.8)
+            var inset_front: float = rng.randf_range(0.8, 2.8)
+            var inset_back: float = rng.randf_range(0.8, 2.8)
+            var lot := Rect2(
+                cell_position + Vector2(inset_left, inset_front),
+                Vector2(
+                    cell_width - inset_left - inset_right,
+                    cell_depth - inset_front - inset_back
+                )
+            )
+            if lot.size.x >= 12.0 and lot.size.y >= 12.0:
+                lots.append(lot)
+
+    _shuffle_with_rng(lots, rng)
+    return lots
+
+
+func _shuffle_with_rng(values: Array, rng: RandomNumberGenerator) -> void:
+    for index in range(values.size() - 1, 0, -1):
+        var swap_index: int = rng.randi_range(0, index)
+        var held_value: Variant = values[index]
+        values[index] = values[swap_index]
+        values[swap_index] = held_value
+
+
+func _try_add_city_lot(
+    index: int,
+    lot: Rect2,
+    rng: RandomNumberGenerator,
+    occupied: Array[Rect2]
+) -> bool:
+    var center: Vector2 = lot.get_center()
+    if not _lot_clears_roads(
+        center.x,
+        center.y,
+        lot.size.x,
+        lot.size.y
+    ):
+        return false
+
+    var candidate: Rect2 = lot.grow(1.2)
+    if not _rect_is_clear(candidate, occupied):
+        return false
+
+    var tier: String = _choose_city_tier(center, rng)
+    var height: float = _height_for_tier(tier, rng)
+    var position := Vector3(center.x, height * 0.5, center.y)
+    var color: Color = CITY_COLORS[rng.randi_range(0, CITY_COLORS.size() - 1)]
+    # Full landmark crowns are reserved for the five authored skyline anchors.
+    var style: int = rng.randi_range(0, 3)
+    var orientation_degrees: float = 90.0 if rng.randf() < 0.34 else 0.0
+    # Swap local footprint axes before a quarter-turn so the resulting world
+    # AABB stays inside the road-derived lot reservation.
+    var size := Vector3(lot.size.x, height, lot.size.y)
+    if orientation_degrees > 0.0:
+        size = Vector3(lot.size.y, height, lot.size.x)
+
+    _add_building(
+        "Building_%03d" % index,
+        position,
+        size,
+        color,
+        tier,
+        style,
+        false,
+        orientation_degrees
+    )
+    occupied.append(candidate)
+    return true
+
+
+func _lot_clears_roads(x: float, z: float, width: float, depth: float) -> bool:
+    for road_x_value in CITY_ROADS_X:
+        var road_x: float = float(road_x_value)
+        if absf(x - road_x) < width * 0.5 + _road_width(road_x) * 0.5 + 2.4:
+            return false
+    for road_z_value in CITY_ROADS_Z:
+        var road_z: float = float(road_z_value)
+        if absf(z - road_z) < depth * 0.5 + _road_width(road_z) * 0.5 + 2.4:
+            return false
+    return true
+
+
+func _rect_is_clear(candidate: Rect2, occupied: Array[Rect2]) -> bool:
+    for existing in occupied:
+        if candidate.intersects(existing, true):
+            return false
+    return true
+
+
+func _building_rect(
+    position: Vector3,
+    size: Vector3,
+    padding: float = 0.0
+) -> Rect2:
+    return Rect2(
+        Vector2(
+            position.x - size.x * 0.5 - padding,
+            position.z - size.z * 0.5 - padding
+        ),
+        Vector2(size.x + padding * 2.0, size.z + padding * 2.0)
+    )
+
+
+func _choose_city_tier(position: Vector2, rng: RandomNumberGenerator) -> String:
+    var landmark_distance: float = _nearest_landmark_distance(position)
+    var roll: float = rng.randf()
+    if landmark_distance < 58.0:
+        return "tall" if roll < 0.72 else "medium"
+    if landmark_distance < 102.0:
+        return "tall" if roll < 0.42 else "medium"
+
+    # Dense western MDK3 favors closely stepped low/medium roofs. Northern and
+    # eastern Jerkovic favors taller anchors and wider street-scale swings.
+    if position.x < -105.0:
+        if roll < 0.40:
+            return "low"
+        return "medium" if roll < 0.88 else "tall"
+    if position.x > 75.0 or position.y > 95.0:
+        if roll < 0.16:
+            return "low"
+        return "medium" if roll < 0.58 else "tall"
+    if roll < 0.27:
+        return "low"
+    return "medium" if roll < 0.76 else "tall"
+
+
+func _nearest_landmark_distance(position: Vector2) -> float:
+    var nearest: float = INF
+    for landmark in [
+        Vector2(-223, -144), Vector2(220, 148), Vector2(-80, 153),
+        Vector2(145, -146), Vector2(222, 226)
+    ]:
+        nearest = minf(nearest, position.distance_to(landmark))
+    return nearest
+
+
+func _height_for_tier(tier: String, rng: RandomNumberGenerator) -> float:
+    match tier:
+        "low":
+            return rng.randf_range(8.0, 18.0)
+        "tall":
+            return rng.randf_range(50.0, 90.0)
+        _:
+            return rng.randf_range(20.0, 45.0)
+
+
+func _tier_for_height(height: float) -> String:
+    if height < 20.0:
+        return "low"
+    if height < 50.0:
+        return "medium"
+    if height < 100.0:
+        return "tall"
+    return "landmark"
+
+func _add_building(
+    node_name: String,
+    pos: Vector3,
+    size: Vector3,
+    color: Color,
+    tier: String = "medium",
+    style: int = 0,
+    legacy_details: bool = false,
+    orientation_degrees: float = 0.0
+):
+    var body = _add_static_box(
+        node_name,
+        pos,
+        size,
+        color,
+        _district_parent_for(pos, tier)
+    )
+    body.rotation_degrees.y = orientation_degrees
     var accent = color.lightened(0.22)
+    var silhouette_range: float = _building_silhouette_range(tier)
+    var detail_range: float = _building_detail_range(tier)
+    body.add_to_group("city_building")
+    body.set_meta("city_tier", tier)
+    body.set_meta("architecture_style", style)
+    body.set_meta("floor_count", maxi(3, roundi(float(size.y) / 4.1)))
+    body.set_meta("city_detail_range", detail_range)
+    body.set_meta("city_silhouette_range", silhouette_range)
+    body.set_meta("legacy_roof_kit", legacy_details)
 
-    _add_child_box(body, "RoofTrim", Vector3(0,size.y*0.5+0.13,0), Vector3(size.x*0.88,0.24,size.z*0.88), Color("#65c8ff"), true)
+    city_building_count += 1
+    city_height_min = minf(city_height_min, size.y)
+    city_height_max = maxf(city_height_max, size.y)
+    city_heights.append(size.y)
+    city_tier_counts[tier] = int(city_tier_counts.get(tier, 0)) + 1
 
-    # Vertical architectural ribs.
+    var base_mesh := body.get_child(0) as MeshInstance3D
+    if base_mesh != null:
+        base_mesh.visibility_range_end = silhouette_range
+        base_mesh.visibility_range_end_margin = 35.0
+
+    # Sparse ribs read at traversal speed without rebuilding the thousands of
+    # tiny window meshes now covered by the facade-card decorator.
     var ox = size.x * 0.5 - 0.16
     var oz = size.z * 0.5 - 0.16
     for x in [-ox, ox]:
         for z in [-oz, oz]:
             _add_child_box(body, "Rib", Vector3(x,0,z), Vector3(0.22,size.y+0.04,0.22), accent, false)
 
-    _add_windows(body, size)
-    _add_rooftop_props(body, size, accent)
+    # Preserve the original core's familiar roof kit. New districts receive
+    # cheaper, style-driven roof silhouettes from world_decorator.gd.
+    if legacy_details:
+        _add_rooftop_props(body, size, accent)
 
-func _add_windows(parent, size):
-    var glow = Color("#d8f2ff")
-    var floors = int(clamp(floor((size.y - 4.0) / 4.2), 3.0, 9.0))
-    var cols_x = int(clamp(floor((size.x - 3.0) / 3.0), 3.0, 6.0))
-    var cols_z = int(clamp(floor((size.z - 3.0) / 3.0), 3.0, 6.0))
 
-    for floor_idx in range(floors):
-        var t = float(floor_idx) / float(max(floors - 1, 1))
-        var y = lerp(-size.y*0.5 + 2.7, size.y*0.5 - 2.3, t)
-        for i in range(cols_x):
-            var tx = float(i) / float(max(cols_x - 1,1))
-            var x = lerp(-size.x*0.36, size.x*0.36, tx)
-            _add_child_box(parent, "WF", Vector3(x,y,size.z*0.5+0.045), Vector3(1.05,1.35,0.08), glow, true)
-            _add_child_box(parent, "WB", Vector3(x,y,-size.z*0.5-0.045), Vector3(1.05,1.35,0.08), glow.darkened(0.12), true)
-        for j in range(cols_z):
-            var tz = float(j) / float(max(cols_z - 1,1))
-            var z = lerp(-size.z*0.36, size.z*0.36, tz)
-            _add_child_box(parent, "WL", Vector3(-size.x*0.5-0.045,y,z), Vector3(0.08,1.35,1.05), glow.darkened(0.05), true)
-            _add_child_box(parent, "WR", Vector3(size.x*0.5+0.045,y,z), Vector3(0.08,1.35,1.05), glow, true)
+func _building_silhouette_range(tier: String) -> float:
+    match tier:
+        "low":
+            return 340.0
+        "medium":
+            return 470.0
+        "tall":
+            return 680.0
+        "landmark":
+            return 1400.0
+        _:
+            return 420.0
+
+
+func _building_detail_range(tier: String) -> float:
+    match tier:
+        "low":
+            return 230.0
+        "medium":
+            return 300.0
+        "tall":
+            return 410.0
+        "landmark":
+            return 850.0
+        _:
+            return 280.0
+
+
+func _report_city_generation() -> void:
+    if city_building_count <= 0:
+        return
+
+    var sorted_heights: Array[float] = city_heights.duplicate()
+    sorted_heights.sort()
+    var middle: int = sorted_heights.size() >> 1
+    var median_height: float = sorted_heights[middle]
+    if sorted_heights.size() % 2 == 0:
+        median_height = (
+            sorted_heights[middle - 1] + sorted_heights[middle]
+        ) * 0.5
+
+    var summary: String = (
+        "[CITY] %d buildings | heights %.1f / %.1f / %.1f m "
+        + "(min / median / max) | tiers %s | seed %d"
+    ) % [
+        city_building_count,
+        city_height_min,
+        median_height,
+        city_height_max,
+        str(city_tier_counts),
+        CITY_LAYOUT_SEED
+    ]
+    print(summary)
 
 func _add_rooftop_props(parent, size, accent):
     var y = size.y*0.5 + 0.60
@@ -293,42 +877,66 @@ func _add_rooftop_props(parent, size, accent):
     antenna.mesh = ant_mesh
     antenna.position = Vector3(size.x*0.24, y+2.1, -size.z*0.20)
     antenna.material_override = _make_material(Color("#aab6c7"), false)
+    if parent.has_meta("city_detail_range"):
+        antenna.visibility_range_end = float(parent.get_meta("city_detail_range"))
+        antenna.visibility_range_end_margin = 25.0
     parent.add_child(antenna)
 
 func _add_street_lights():
-    for x in [-54.0, -18.0, 18.0, 54.0]:
-        for z in [-42.0, -6.0, 30.0, 66.0]:
-            var holder = Node3D.new()
-            holder.position = Vector3(x,0,z)
-            add_child(holder)
+    var along_positions = [-232.0, -158.0, -78.0, 78.0, 158.0, 232.0]
+    for x_value in along_positions:
+        var x: float = float(x_value)
+        _add_street_light(Vector3(x, 0, -98.5))
+        _add_street_light(Vector3(x, 0, 125.5))
+    for z_value in along_positions:
+        var z: float = float(z_value)
+        _add_street_light(Vector3(-106.5, 0, z))
+        _add_street_light(Vector3(121.5, 0, z))
 
-            var pole = MeshInstance3D.new()
-            var pole_mesh = CylinderMesh.new()
-            pole_mesh.top_radius = 0.11
-            pole_mesh.bottom_radius = 0.13
-            pole_mesh.height = 7.0
-            pole_mesh.radial_segments = 10
-            pole.mesh = pole_mesh
-            pole.position = Vector3(0,3.5,0)
-            pole.material_override = _make_material(Color("#8f9caf"), false)
-            holder.add_child(pole)
 
-            var bulb = MeshInstance3D.new()
-            var bulb_mesh = SphereMesh.new()
-            bulb_mesh.radius = 0.20
-            bulb_mesh.height = 0.40
-            bulb_mesh.radial_segments = 10
-            bulb_mesh.rings = 5
-            bulb.mesh = bulb_mesh
-            bulb.position = Vector3(0,7.0,0)
-            bulb.material_override = _make_material(Color("#ffd89b"), true)
-            holder.add_child(bulb)
+func _add_street_light(world_position: Vector3) -> void:
+    var holder = Node3D.new()
+    holder.position = world_position
+    city_infrastructure.add_child(holder)
+
+    var pole = MeshInstance3D.new()
+    var pole_mesh = CylinderMesh.new()
+    pole_mesh.top_radius = 0.11
+    pole_mesh.bottom_radius = 0.13
+    pole_mesh.height = 7.0
+    pole_mesh.radial_segments = 10
+    pole.mesh = pole_mesh
+    pole.position = Vector3(0,3.5,0)
+    pole.material_override = _make_material(Color("#8f9caf"), false)
+    pole.visibility_range_end = 190.0
+    pole.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+    holder.add_child(pole)
+
+    var bulb = MeshInstance3D.new()
+    var bulb_mesh = SphereMesh.new()
+    bulb_mesh.radius = 0.20
+    bulb_mesh.height = 0.40
+    bulb_mesh.radial_segments = 10
+    bulb_mesh.rings = 5
+    bulb.mesh = bulb_mesh
+    bulb.position = Vector3(0,7.0,0)
+    bulb.material_override = _make_material(Color("#ffd89b"), true)
+    bulb.visibility_range_end = 220.0
+    bulb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+    holder.add_child(bulb)
 
 func _add_billboards():
     var positions = [Vector3(-22, 34, -71.8), Vector3(62, 38, -15.8), Vector3(-60, 39, 36.2)]
     var colors = [Color("#ff4f88"), Color("#48f0d0"), Color("#ffd44f")]
     for i in range(positions.size()):
-        _add_visual_box("Billboard_%d" % i, positions[i], Vector3(7.0,3.0,0.30), colors[i], true)
+        _add_visual_box(
+            "Billboard_%d" % i,
+            positions[i],
+            Vector3(7.0,3.0,0.30),
+            colors[i],
+            true,
+            city_districts.get("CentralDistrict", city_root) as Node3D
+        )
 
 func _build_player():
     player = CharacterBody3D.new()
@@ -820,7 +1428,13 @@ func _save_best_time():
     config.set_value("scores", "best_time", best_time)
     config.save("user://web_runner_save.cfg")
 
-func _add_static_box(node_name, pos, size, color):
+func _add_static_box(
+    node_name,
+    pos,
+    size,
+    color,
+    parent: Node3D = null
+):
     var body = StaticBody3D.new()
     body.name = node_name
     body.position = pos
@@ -840,10 +1454,18 @@ func _add_static_box(node_name, pos, size, color):
     collision.shape = shape
     body.add_child(collision)
 
-    add_child(body)
+    var target_parent: Node3D = parent if parent != null else self
+    target_parent.add_child(body)
     return body
 
-func _add_visual_box(node_name, pos, size, color, glow):
+func _add_visual_box(
+    node_name,
+    pos,
+    size,
+    color,
+    glow,
+    parent: Node3D = null
+):
     var instance = MeshInstance3D.new()
     instance.name = node_name
     instance.position = pos
@@ -851,7 +1473,8 @@ func _add_visual_box(node_name, pos, size, color, glow):
     mesh.size = size
     instance.mesh = mesh
     instance.material_override = _make_material(color, glow)
-    add_child(instance)
+    var target_parent: Node3D = parent if parent != null else self
+    target_parent.add_child(instance)
     return instance
 
 func _add_child_box(parent, node_name, pos, size, color, glow):
@@ -862,10 +1485,18 @@ func _add_child_box(parent, node_name, pos, size, color, glow):
     mesh.size = size
     instance.mesh = mesh
     instance.material_override = _make_material(color, glow)
+    if parent.has_meta("city_detail_range"):
+        instance.visibility_range_end = float(parent.get_meta("city_detail_range"))
+        instance.visibility_range_end_margin = 25.0
+    if size.y < 2.0 or maxf(size.x, size.z) < 3.2:
+        instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
     parent.add_child(instance)
     return instance
 
 func _make_material(color, glow):
+    var key: String = "%s|%s" % [color.to_html(true), str(glow)]
+    if material_cache.has(key):
+        return material_cache[key]
     var mat = StandardMaterial3D.new()
     mat.albedo_color = color
     mat.roughness = 0.72
@@ -873,4 +1504,5 @@ func _make_material(color, glow):
         mat.emission_enabled = true
         mat.emission = color
         mat.emission_energy_multiplier = 1.8
+    material_cache[key] = mat
     return mat
