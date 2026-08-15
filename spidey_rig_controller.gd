@@ -69,9 +69,6 @@ const TARGET_CANONICAL: Dictionary = {
 
 # Ground arm targets in BRC skeleton space.
 # BRC faces approximately +Z and character-left is +X.
-#
-# Hands are deliberately slightly farther from the torso than elbow poles,
-# so forearms do not aim inward through the chest/hips.
 const IDLE_HAND_SIDE: float = 0.305
 const IDLE_HAND_Y: float = 0.900
 const IDLE_HAND_Z: float = 0.020
@@ -79,13 +76,14 @@ const IDLE_ELBOW_SIDE: float = 0.250
 const IDLE_ELBOW_Y: float = 1.055
 const IDLE_ELBOW_Z: float = -0.010
 
-const RUN_HAND_SIDE: float = 0.285
-const RUN_HAND_MID_Y: float = 0.980
-const RUN_HAND_FORWARD_Y: float = 0.045
-const RUN_HAND_SWING_Z: float = 0.180
-const RUN_ELBOW_SIDE: float = 0.235
-const RUN_ELBOW_Y: float = 1.070
-const RUN_ELBOW_Z_SCALE: float = 0.08
+# Run hands are placed relative to the animated shoulder. Their reach is
+# derived from the real upper-arm/forearm lengths so the IK elbow remains at
+# 90 degrees throughout the stride instead of straightening at the extremes.
+const RUN_HAND_OUTWARD_FROM_SHOULDER: float = 0.100
+const RUN_HAND_SWING_Z: float = 0.170
+const RUN_POLE_OUTWARD_FROM_SHOULDER: float = 0.060
+const RUN_POLE_DOWN_FROM_SHOULDER: float = 0.160
+const RUN_POLE_BEHIND_SHOULDER: float = 0.280
 
 const ARM_TARGET_SMOOTH: float = 12.0
 const ARM_IK_BLEND_SPEED: float = 9.0
@@ -129,6 +127,10 @@ var arm_ik_blend: float = 0.0
 var arm_stride: float = 0.0
 var shoulder_rest_rotation: Dictionary = {}
 var hand_rest_rotation: Dictionary = {}
+var left_arm_root_bone: int = -1
+var right_arm_root_bone: int = -1
+var left_arm_right_angle_reach: float = 0.0
+var right_arm_right_angle_reach: float = 0.0
 
 var left_leg_ik: TwoBoneIK3D = null
 var right_leg_ik: TwoBoneIK3D = null
@@ -496,6 +498,19 @@ func _build_brc_arm_ik() -> void:
 		push_error("[SPIDEY NATIVE] BRC arm chain incomplete.")
 		return
 
+	left_arm_root_bone = arm1_l
+	right_arm_root_bone = arm1_r
+	left_arm_right_angle_reach = _get_right_angle_arm_reach(
+		arm1_l,
+		arm2_l,
+		hand_l
+	)
+	right_arm_right_angle_reach = _get_right_angle_arm_reach(
+		arm1_r,
+		arm2_r,
+		hand_r
+	)
+
 	skeleton.modifier_callback_mode_process = (
 		Skeleton3D.MODIFIER_CALLBACK_MODE_PROCESS_MANUAL
 	)
@@ -681,15 +696,23 @@ func _update_ground_arm_targets(
 		IDLE_HAND_Z
 	)
 
-	var run_left_hand := Vector3(
-		RUN_HAND_SIDE,
-		RUN_HAND_MID_Y + left_forwardness * RUN_HAND_FORWARD_Y,
-		left_forwardness * RUN_HAND_SWING_Z
+	var left_shoulder: Vector3 = (
+		skeleton.get_bone_global_pose(left_arm_root_bone).origin
 	)
-	var run_right_hand := Vector3(
-		-RUN_HAND_SIDE,
-		RUN_HAND_MID_Y + right_forwardness * RUN_HAND_FORWARD_Y,
-		right_forwardness * RUN_HAND_SWING_Z
+	var right_shoulder: Vector3 = (
+		skeleton.get_bone_global_pose(right_arm_root_bone).origin
+	)
+	var run_left_hand: Vector3 = _get_run_hand_target(
+		left_shoulder,
+		1.0,
+		left_forwardness,
+		left_arm_right_angle_reach
+	)
+	var run_right_hand: Vector3 = _get_run_hand_target(
+		right_shoulder,
+		-1.0,
+		right_forwardness,
+		right_arm_right_angle_reach
 	)
 
 	var idle_left_pole := Vector3(
@@ -703,15 +726,17 @@ func _update_ground_arm_targets(
 		IDLE_ELBOW_Z
 	)
 
-	var run_left_pole := Vector3(
-		RUN_ELBOW_SIDE,
-		RUN_ELBOW_Y,
-		run_left_hand.z * RUN_ELBOW_Z_SCALE
+	# Both poles stay on mirrored sagittal planes behind the shoulders. This
+	# prevents inward/outward forearm twisting and lateral bird-wing poses.
+	var run_left_pole := left_shoulder + Vector3(
+		RUN_POLE_OUTWARD_FROM_SHOULDER,
+		-RUN_POLE_DOWN_FROM_SHOULDER,
+		-RUN_POLE_BEHIND_SHOULDER
 	)
-	var run_right_pole := Vector3(
-		-RUN_ELBOW_SIDE,
-		RUN_ELBOW_Y,
-		run_right_hand.z * RUN_ELBOW_Z_SCALE
+	var run_right_pole := right_shoulder + Vector3(
+		-RUN_POLE_OUTWARD_FROM_SHOULDER,
+		-RUN_POLE_DOWN_FROM_SHOULDER,
+		-RUN_POLE_BEHIND_SHOULDER
 	)
 
 	var left_target: Vector3 = idle_left_hand.lerp(
@@ -737,14 +762,21 @@ func _update_ground_arm_targets(
 		1.0
 	)
 
-	left_hand_target.position = left_hand_target.position.lerp(
-		left_target,
-		amount
-	)
-	right_hand_target.position = right_hand_target.position.lerp(
-		right_target,
-		amount
-	)
+	# arm_stride is already smoothed. At full run, assign the spherical targets
+	# directly so an extra Cartesian lerp cannot shorten the shoulder-hand
+	# distance and over-bend the elbows between stride extremes.
+	if run_weight >= 0.999:
+		left_hand_target.position = left_target
+		right_hand_target.position = right_target
+	else:
+		left_hand_target.position = left_hand_target.position.lerp(
+			left_target,
+			amount
+		)
+		right_hand_target.position = right_hand_target.position.lerp(
+			right_target,
+			amount
+		)
 	left_elbow_pole.position = left_elbow_pole.position.lerp(
 		left_pole,
 		amount
@@ -752,6 +784,42 @@ func _update_ground_arm_targets(
 	right_elbow_pole.position = right_elbow_pole.position.lerp(
 		right_pole,
 		amount
+	)
+
+
+func _get_right_angle_arm_reach(
+	root_bone: int,
+	middle_bone: int,
+	end_bone: int
+) -> float:
+	var shoulder: Vector3 = skeleton.get_bone_global_rest(root_bone).origin
+	var elbow: Vector3 = skeleton.get_bone_global_rest(middle_bone).origin
+	var hand: Vector3 = skeleton.get_bone_global_rest(end_bone).origin
+	var upper_length: float = shoulder.distance_to(elbow)
+	var forearm_length: float = elbow.distance_to(hand)
+	return sqrt(
+		upper_length * upper_length + forearm_length * forearm_length
+	)
+
+
+func _get_run_hand_target(
+	shoulder: Vector3,
+	side: float,
+	forwardness: float,
+	right_angle_reach: float
+) -> Vector3:
+	var side_offset: float = RUN_HAND_OUTWARD_FROM_SHOULDER
+	var forward_offset: float = forwardness * RUN_HAND_SWING_Z
+	var vertical_squared: float = (
+		right_angle_reach * right_angle_reach
+		- side_offset * side_offset
+		- forward_offset * forward_offset
+	)
+	var downward_offset: float = sqrt(maxf(vertical_squared, 0.0))
+	return shoulder + Vector3(
+		side * side_offset,
+		-downward_offset,
+		forward_offset
 	)
 
 
