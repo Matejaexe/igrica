@@ -38,6 +38,10 @@ func decorate_city(city_root: Node3D) -> void:
 
 	for index in range(buildings.size()):
 		_skin_building(buildings[index], index)
+		# Keep the loading presentation responsive while the 132 facade/roof kits
+		# are created. Collision and decoration order remain deterministic.
+		if index % 10 == 9:
+			await get_tree().process_frame
 
 	_add_rooftop_route_props(city_root, buildings)
 	_add_city_cables(city_root)

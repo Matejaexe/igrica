@@ -91,6 +91,30 @@ static func build(parent: Node3D, data: Dictionary) -> Dictionary:
         "right_leg": leg_r_proxy
     }
 
+static func build_preview(parent: Node3D, data: Dictionary) -> Dictionary:
+    # Menu/loading previews need the real skinned BRC mesh, but not the gameplay
+    # controller (which requires a CharacterBody3D and traversal state). Keeping
+    # this path separate prevents a failed gameplay setup from leaving previews
+    # in the imported T-pose.
+    var model: Node3D = MODEL.instantiate() as Node3D
+    model.name = "BRCPreviewModel"
+    model.position = Vector3(0.0, MODEL_Y_OFFSET, 0.0)
+    model.rotation.y = PI
+    model.scale = Vector3.ONE * MODEL_SCALE
+    parent.add_child(model)
+
+    var skeleton: Skeleton3D = _find_skeleton(model)
+    var character_id: String = String(data.get("id", "crimson"))
+    _apply_character_material(
+        model,
+        _texture_for_character(character_id),
+        _tint_for_character(character_id)
+    )
+    return {
+        "model": model,
+        "skeleton": skeleton
+    }
+
 static func _texture_for_character(character_id: String) -> Texture2D:
     match character_id:
         "azure":

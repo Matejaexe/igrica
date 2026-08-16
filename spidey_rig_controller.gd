@@ -81,6 +81,23 @@ const IDLE_ELBOW_SIDE: float = 0.250
 const IDLE_ELBOW_Y: float = 1.055
 const IDLE_ELBOW_Z: float = -0.010
 
+# The perched idle is a presentation-only rooftop state. A short delay keeps it
+# from firing whenever the player briefly releases movement, and the downward
+# probe distinguishes a real city-building roof from streets and base ground.
+const ROOFTOP_IDLE_DELAY: float = 3.2
+const ROOFTOP_IDLE_MAX_SPEED: float = 0.30
+const ROOFTOP_PROBE_INTERVAL: float = 0.20
+const ROOFTOP_PROBE_DISTANCE: float = 2.20
+const ROOFTOP_MIN_UP_NORMAL: float = 0.72
+const ROOFTOP_IDLE_VISUAL_DROP: float = 0.32
+
+# Ground idle uses five authored full-body breakers rather than leaving the
+# donor's minimal breathing loop as the only visible result. Every breaker
+# eases through the donor pose at its boundaries, so movement can interrupt it
+# immediately without a pop or animation lock.
+const GROUND_IDLE_MAX_SPEED: float = 0.30
+const GROUND_IDLE_VARIANT_COUNT: int = 5
+
 # Direct BRC run-arm calibration, measured from the imported rest matrices.
 # Shoulder local X/Z create a compact, low run shoulder rather than retaining
 # the imported T-pose abduction. arm1 local X fixes the elbow-hinge plane while
@@ -168,6 +185,8 @@ const WALL_RECOVERY_REACH_RATIO: float = 0.62
 
 enum TraversalPoseState {
 	BASE,
+	GROUND_IDLE,
+	ROOFTOP_IDLE,
 	RUN,
 	JUMP,
 	DOUBLE_JUMP,
@@ -271,6 +290,12 @@ var traversal_bones: Dictionary = {}
 var traversal_rest_rotation: Dictionary = {}
 var pose_layer_rotation: Dictionary = {}
 var pose_state: TraversalPoseState = TraversalPoseState.BASE
+var ground_idle_variant: int = 0
+var ground_idle_variant_time: float = 0.0
+var ground_idle_was_active: bool = false
+var rooftop_idle_elapsed: float = 0.0
+var rooftop_probe_remaining: float = 0.0
+var standing_on_city_rooftop: bool = false
 var airborne_fall_time: float = 0.0
 var dive_active: bool = false
 var release_pose_remaining: float = 0.0
@@ -619,6 +644,26 @@ func _update_traversal_context(
 	var double_jump_time: float = float(player.get("double_jump_pose_time"))
 	var double_jump_sequence: int = int(player.get("double_jump_sequence"))
 	var on_floor: bool = player.is_on_floor()
+	var attack_active: bool = float(player.get("attack_pose_time")) > 0.0
+
+	_update_ground_idle_context(
+		delta,
+		horizontal_speed,
+		on_floor,
+		grappling,
+		wall_riding,
+		zip_active,
+		attack_active
+	)
+	_update_rooftop_idle_context(
+		delta,
+		horizontal_speed,
+		on_floor,
+		grappling,
+		wall_riding,
+		zip_active,
+		attack_active
+	)
 
 	release_pose_remaining = maxf(0.0, release_pose_remaining - delta)
 	swing_flip_remaining = maxf(0.0, swing_flip_remaining - delta)
@@ -814,6 +859,129 @@ func _update_traversal_context(
 	previous_on_floor = on_floor
 
 
+func _update_ground_idle_context(
+	delta: float,
+	horizontal_speed: float,
+	on_floor: bool,
+	grappling: bool,
+	wall_riding: bool,
+	zip_active: bool,
+	attack_active: bool
+) -> void:
+	var can_idle: bool = (
+		on_floor
+		and horizontal_speed <= GROUND_IDLE_MAX_SPEED
+		and not grappling
+		and not wall_riding
+		and not zip_active
+		and not attack_active
+	)
+	if not can_idle:
+		if ground_idle_was_active:
+			ground_idle_variant = (
+				ground_idle_variant + 1
+			) % GROUND_IDLE_VARIANT_COUNT
+		ground_idle_variant_time = 0.0
+		ground_idle_was_active = false
+		return
+
+	ground_idle_was_active = true
+	ground_idle_variant_time += delta
+	var duration: float = _get_ground_idle_variant_duration(
+		ground_idle_variant
+	)
+	if ground_idle_variant_time >= duration:
+		ground_idle_variant_time = fmod(
+		ground_idle_variant_time,
+		duration
+		)
+		ground_idle_variant = (
+			ground_idle_variant + 1
+		) % GROUND_IDLE_VARIANT_COUNT
+
+
+func _get_ground_idle_variant_duration(variant: int) -> float:
+	match variant:
+		0:
+			return 4.8
+		1:
+			return 5.4
+		2:
+			return 5.1
+		3:
+			return 4.6
+		_:
+			return 5.6
+
+
+func _update_rooftop_idle_context(
+	delta: float,
+	horizontal_speed: float,
+	on_floor: bool,
+	grappling: bool,
+	wall_riding: bool,
+	zip_active: bool,
+	attack_active: bool
+) -> void:
+	var can_perch: bool = (
+		on_floor
+		and horizontal_speed <= ROOFTOP_IDLE_MAX_SPEED
+		and not grappling
+		and not wall_riding
+		and not zip_active
+		and not attack_active
+	)
+	if not can_perch:
+		rooftop_idle_elapsed = 0.0
+		rooftop_probe_remaining = 0.0
+		standing_on_city_rooftop = false
+		return
+
+	rooftop_probe_remaining -= delta
+	if rooftop_probe_remaining <= 0.0:
+		rooftop_probe_remaining = ROOFTOP_PROBE_INTERVAL
+		standing_on_city_rooftop = _is_standing_on_city_rooftop()
+
+	if standing_on_city_rooftop:
+		rooftop_idle_elapsed += delta
+	else:
+		rooftop_idle_elapsed = 0.0
+
+
+func _is_standing_on_city_rooftop() -> bool:
+	var world: World3D = player.get_world_3d()
+	if world == null:
+		return false
+
+	var ray_start: Vector3 = player.global_position + Vector3.UP * 0.10
+	var query := PhysicsRayQueryParameters3D.create(
+		ray_start,
+		ray_start + Vector3.DOWN * ROOFTOP_PROBE_DISTANCE
+	)
+	query.exclude = [player.get_rid()]
+	query.collide_with_areas = false
+	var hit: Dictionary = world.direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return false
+
+	var normal_value: Variant = hit.get("normal", Vector3.ZERO)
+	if (
+		typeof(normal_value) != TYPE_VECTOR3
+		or (normal_value as Vector3).dot(Vector3.UP) < ROOFTOP_MIN_UP_NORMAL
+	):
+		return false
+
+	var collider_value: Variant = hit.get("collider")
+	if collider_value is not Node:
+		return false
+	var collider_node: Node = collider_value as Node
+	while collider_node != null:
+		if collider_node.is_in_group("city_building"):
+			return true
+		collider_node = collider_node.get_parent()
+	return false
+
+
 func _is_apex_swing_flip_release() -> bool:
 	# Timing, not a random per-frame roll, earns the trick. Even an eligible
 	# apex produces a flip only on every second swing so ordinary releases keep
@@ -862,6 +1030,26 @@ func _update_trick_pivot_presentation(delta: float) -> void:
 		trick_model_pivot.rotation.x = 0.0
 		trick_model_pivot.rotation.z = 0.0
 		trick_model_pivot.position.y = 0.0
+		return
+	if pose_state == TraversalPoseState.ROOFTOP_IDLE:
+		var perch_blend: float = clampf(7.0 * delta, 0.0, 1.0)
+		trick_model_pivot.rotation.x = lerp_angle(
+			trick_model_pivot.rotation.x,
+			0.0,
+			perch_blend
+		)
+		trick_model_pivot.rotation.z = lerp_angle(
+			trick_model_pivot.rotation.z,
+			0.0,
+			perch_blend
+		)
+		# Lower only the visible model as the articulated legs fold. CharacterBody
+		# height, collision and all movement physics remain unchanged.
+		trick_model_pivot.position.y = lerpf(
+			trick_model_pivot.position.y,
+			-ROOFTOP_IDLE_VISUAL_DROP,
+			perch_blend
+		)
 		return
 	if pose_state not in [
 		TraversalPoseState.SWING_FLIP,
@@ -952,6 +1140,14 @@ func _select_traversal_pose_state(
 			return TraversalPoseState.LAND_ROLL
 		if landing_pose_remaining > 0.0:
 			return TraversalPoseState.LAND
+		if (
+			standing_on_city_rooftop
+			and rooftop_idle_elapsed >= ROOFTOP_IDLE_DELAY
+			and horizontal_speed <= ROOFTOP_IDLE_MAX_SPEED
+		):
+			return TraversalPoseState.ROOFTOP_IDLE
+		if horizontal_speed <= GROUND_IDLE_MAX_SPEED:
+			return TraversalPoseState.GROUND_IDLE
 		if horizontal_speed > 4.0:
 			return TraversalPoseState.RUN
 		return TraversalPoseState.BASE
@@ -977,6 +1173,10 @@ func _update_animation_state(horizontal_speed: float) -> void:
 	var wanted: StringName
 
 	match pose_state:
+		TraversalPoseState.GROUND_IDLE:
+			wanted = &"idle"
+		TraversalPoseState.ROOFTOP_IDLE:
+			wanted = &"idle"
 		TraversalPoseState.RUN, TraversalPoseState.WALL_RUN:
 			wanted = &"run"
 		TraversalPoseState.JUMP, TraversalPoseState.DOUBLE_JUMP, TraversalPoseState.WALL_JUMP:
@@ -1099,6 +1299,10 @@ func _build_traversal_pose_targets(
 	var targets: Dictionary = {}
 
 	match pose_state:
+		TraversalPoseState.GROUND_IDLE:
+			_build_ground_idle_pose(targets)
+		TraversalPoseState.ROOFTOP_IDLE:
+			_build_rooftop_idle_pose(targets)
 		TraversalPoseState.RUN:
 			# Keep the authored donor stride; add only calibrated forward intent.
 			_set_current_pose_offset(targets, "hips", 0.0, -0.06, 0.0)
@@ -1133,6 +1337,228 @@ func _build_traversal_pose_targets(
 			_build_landing_roll_pose(targets)
 
 	return targets
+
+
+func _build_ground_idle_pose(targets: Dictionary) -> void:
+	var duration: float = _get_ground_idle_variant_duration(
+		ground_idle_variant
+	)
+	var progress: float = clampf(
+		ground_idle_variant_time / maxf(duration, 0.01),
+		0.0,
+		1.0
+	)
+	# Each breaker leaves and returns through the donor idle. This provides a
+	# clean neutral frame between distinct silhouettes and makes every phase
+	# immediately interruptible by movement.
+	var pose_weight: float = (
+		smoothstep(0.0, 0.16, progress)
+		* (1.0 - smoothstep(0.82, 1.0, progress))
+	)
+	if pose_weight <= 0.001:
+		return
+
+	var authored: Dictionary = {}
+	match ground_idle_variant:
+		0:
+			_build_idle_ready_sway(authored, progress)
+		1:
+			_build_idle_web_shooter_check(authored, progress)
+		2:
+			_build_idle_shoulder_release(authored, progress)
+		3:
+			_build_idle_street_bounce(authored, progress)
+		_:
+			_build_idle_vigilant_scan(authored, progress)
+	_blend_authored_pose_from_current(targets, authored, pose_weight)
+
+
+func _build_idle_ready_sway(
+	targets: Dictionary,
+	progress: float
+) -> void:
+	# Relaxed athletic breathing with an obvious heel-to-heel weight transfer.
+	var shift: float = sin(progress * TAU * 1.5)
+	var breath: float = sin(progress * TAU * 3.0)
+	_set_rest_pose_target(
+		targets, "hips", shift * 0.065, -0.08 - breath * 0.018, shift * 0.025
+	)
+	_set_rest_pose_target(
+		targets, "s1", -shift * 0.040, -0.08, -shift * 0.018
+	)
+	_set_rest_pose_target(
+		targets, "s2", -shift * 0.085, -0.04 - breath * 0.012, -shift * 0.020
+	)
+	_set_rest_pose_target(targets, "neck", shift * 0.050, 0.045, 0.0)
+	_set_rest_pose_target(targets, "head", shift * 0.035, 0.015, 0.0)
+	_set_compact_arm_pose(targets, true, 0.04 - shift * 0.15, 1.18)
+	_set_compact_arm_pose(targets, false, 0.04 + shift * 0.15, 1.18)
+	_set_leg_pose(
+		targets, true, -0.04 - shift * 0.055, 0.24 + shift * 0.07, -0.04
+	)
+	_set_leg_pose(
+		targets, false, -0.04 + shift * 0.055, 0.24 - shift * 0.07, -0.04
+	)
+
+
+func _build_idle_web_shooter_check(
+	targets: Dictionary,
+	progress: float
+) -> void:
+	# A deliberate forearm/web-shooter inspection: the torso turns with the
+	# gesture and the support hand approaches from below instead of both arms
+	# floating independently.
+	var inspect: float = sin(progress * PI)
+	var focus_motion: float = sin(progress * TAU * 1.5) * inspect
+	_set_rest_pose_target(targets, "hips", -0.06 * inspect, -0.09, 0.0)
+	_set_rest_pose_target(targets, "s1", 0.10 * inspect, -0.12, 0.0)
+	_set_rest_pose_target(targets, "s2", 0.18 * inspect, -0.10, 0.0)
+	_set_rest_pose_target(
+		targets, "neck", -0.16 * inspect + focus_motion * 0.025, 0.10, 0.0
+	)
+	_set_rest_pose_target(
+		targets, "head", -0.12 * inspect + focus_motion * 0.035, 0.07, 0.0
+	)
+	_set_compact_arm_pose(
+		targets, true, -0.68 - focus_motion * 0.035, 1.42
+	)
+	_set_compact_arm_pose(
+		targets, false, -0.42 + focus_motion * 0.025, 1.66
+	)
+	_set_leg_pose(targets, true, -0.08, 0.30, -0.05)
+	_set_leg_pose(targets, false, 0.03, 0.20, -0.02)
+
+
+func _build_idle_shoulder_release(
+	targets: Dictionary,
+	progress: float
+) -> void:
+	# Opens the chest, pulls both bent arms behind the rib cage, then rolls the
+	# shoulders forward again. The knees and ankles counterbalance the stretch.
+	var stretch: float = sin(progress * PI)
+	var shoulder_roll: float = sin(progress * TAU * 2.0) * stretch
+	_set_rest_pose_target(targets, "hips", shoulder_roll * 0.035, 0.04, 0.0)
+	_set_rest_pose_target(targets, "s1", -shoulder_roll * 0.045, 0.10, 0.0)
+	_set_rest_pose_target(targets, "s2", shoulder_roll * 0.060, 0.17, 0.0)
+	_set_rest_pose_target(targets, "neck", -shoulder_roll * 0.035, -0.08, 0.0)
+	_set_rest_pose_target(targets, "head", -shoulder_roll * 0.025, -0.035, 0.0)
+	_set_compact_arm_pose(
+		targets, true, 0.34 + shoulder_roll * 0.10, 1.02
+	)
+	_set_compact_arm_pose(
+		targets, false, 0.34 - shoulder_roll * 0.10, 1.02
+	)
+	_set_leg_pose(targets, true, 0.02, 0.18, -0.02)
+	_set_leg_pose(targets, false, -0.02, 0.18, -0.02)
+
+
+func _build_idle_street_bounce(
+	targets: Dictionary,
+	progress: float
+) -> void:
+	# BRC/JSR-inspired rhythm principle, expressed with an original Spider pose:
+	# deep knee pulses, pelvis drive and opposing compact arms move together.
+	var pulse: float = 0.5 - 0.5 * cos(progress * TAU * 3.0)
+	var side: float = sin(progress * TAU * 1.5)
+	_set_rest_pose_target(
+		targets, "hips", side * 0.10, -0.10 - pulse * 0.14, side * 0.035
+	)
+	_set_rest_pose_target(
+		targets, "s1", -side * 0.07, -0.08 - pulse * 0.08, -side * 0.025
+	)
+	_set_rest_pose_target(
+		targets, "s2", -side * 0.13, -0.03 - pulse * 0.05, -side * 0.030
+	)
+	_set_rest_pose_target(targets, "neck", side * 0.08, 0.08, 0.0)
+	_set_rest_pose_target(targets, "head", side * 0.055, 0.025, 0.0)
+	_set_compact_arm_pose(targets, true, -0.08 - side * 0.30, 1.30)
+	_set_compact_arm_pose(targets, false, -0.08 + side * 0.30, 1.30)
+	_set_leg_pose(
+		targets, true, -0.08 - side * 0.08, 0.30 + pulse * 0.38, -0.08
+	)
+	_set_leg_pose(
+		targets, false, -0.08 + side * 0.08, 0.30 + pulse * 0.38, -0.08
+	)
+
+
+func _build_idle_vigilant_scan(
+	targets: Dictionary,
+	progress: float
+) -> void:
+	# Low alert stance with a slow city scan. Head, chest, pelvis and the two
+	# bent arm chains turn in coordinated counter-motion, not as one rigid block.
+	var scan: float = sin(progress * TAU * 0.72)
+	var left_lead: float = scan * 0.5 + 0.5
+	_set_rest_pose_target(targets, "hips", scan * 0.06, -0.18, scan * 0.018)
+	_set_rest_pose_target(targets, "s1", scan * 0.10, -0.20, 0.0)
+	_set_rest_pose_target(targets, "s2", scan * 0.16, -0.13, -scan * 0.020)
+	_set_rest_pose_target(targets, "neck", -scan * 0.20, 0.12, 0.0)
+	_set_rest_pose_target(targets, "head", -scan * 0.24, 0.05, 0.0)
+	_set_compact_arm_pose(
+		targets, true, lerpf(0.04, -0.48, left_lead), 1.38
+	)
+	_set_compact_arm_pose(
+		targets, false, lerpf(-0.48, 0.04, left_lead), 1.38
+	)
+	_set_leg_pose(targets, true, -0.20, 0.58 + left_lead * 0.16, -0.13)
+	_set_leg_pose(targets, false, -0.20, 0.74 - left_lead * 0.16, -0.13)
+
+
+func _blend_authored_pose_from_current(
+	targets: Dictionary,
+	authored: Dictionary,
+	weight: float
+) -> void:
+	var blend: float = clampf(weight, 0.0, 1.0)
+	for bone_value: Variant in authored.keys():
+		var bone_index: int = int(bone_value)
+		if bone_index < 0:
+			continue
+		var current: Quaternion = skeleton.get_bone_pose_rotation(bone_index)
+		var desired: Quaternion = authored[bone_value]
+		targets[bone_index] = current.slerp(desired, blend)
+
+
+func _build_rooftop_idle_pose(targets: Dictionary) -> void:
+	# A low, original Spider-style perch built from the calibrated articulated
+	# chains. The two legs compress independently and the asymmetric bent arms
+	# keep the silhouette alert without copying the reference pose verbatim.
+	var idle_phase: float = maxf(
+		rooftop_idle_elapsed - ROOFTOP_IDLE_DELAY,
+		0.0
+	)
+	var breath: float = sin(idle_phase * 1.65)
+	var glance: float = sin(idle_phase * 0.43)
+
+	_set_rest_pose_target(
+		targets, "hips", 0.025 + glance * 0.012, -0.30, 0.0
+	)
+	_set_rest_pose_target(
+		targets, "s1", -0.035, -0.34 - breath * 0.012, 0.0
+	)
+	_set_rest_pose_target(
+		targets, "s2", 0.055, -0.22 - breath * 0.010, 0.0
+	)
+	_set_rest_pose_target(
+		targets, "neck", -0.030 - glance * 0.018, 0.17, 0.0
+	)
+	_set_rest_pose_target(
+		targets, "head", glance * 0.035, 0.07, 0.0
+	)
+
+	# One hand stays nearer the chest while the other sits farther forward. Both
+	# remain compact, with the elbow rather than the wrist defining the gesture.
+	_set_compact_arm_pose(
+		targets, true, -0.43 - breath * 0.018, 1.48
+	)
+	_set_compact_arm_pose(
+		targets, false, -0.22 + breath * 0.012, 1.30
+	)
+
+	# Hip, knee and ankle each contribute. Toes remain at imported rest so the
+	# perch never becomes the old permanent-tiptoe stance.
+	_set_leg_pose(targets, true, -0.92, 1.78, -0.36)
+	_set_leg_pose(targets, false, -0.74, 1.62, -0.30)
 
 
 func _build_jump_pose(targets: Dictionary) -> void:

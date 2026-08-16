@@ -5,11 +5,12 @@ const COLLECTIBLE_SCRIPT = preload("res://collectible.gd")
 const RING_SCRIPT = preload("res://ring.gd")
 const DRONE_SCRIPT = preload("res://drone.gd")
 const ROSTER = preload("res://character_roster.gd")
-const CHARACTER_PREVIEW_SCRIPT = preload("res://character_preview.gd")
+const CHARACTER_SELECT_SCRIPT = preload("res://character_select_screen.gd")
 const AUDIO_MANAGER_SCRIPT = preload("res://audio_manager.gd")
 const WORLD_DECORATOR_SCRIPT = preload("res://world_decorator.gd")
 const GRAFFITI_MANAGER_SCRIPT = preload("res://graffiti_manager.gd")
 const PLAYER_SFX_SCRIPT = preload("res://player_sfx.gd")
+const LOADING_SCREEN_SCRIPT = preload("res://loading_screen.gd")
 const TITLE_LOGO = preload("res://art/ui/spider_city_logo.svg")
 
 # Traversal city dimensions and road hierarchy. The original mission core is
@@ -42,11 +43,6 @@ var enemies_left = 0
 var best_time = -1.0
 var selected_character = 0
 var character_overlay = null
-var character_name_label = null
-var character_class_label = null
-var character_stats_label = null
-var character_info_label = null
-var preview_character = null
 var audio_manager = null
 var audio_overlay = null
 var master_slider = null
@@ -61,6 +57,7 @@ var city_height_min: float = INF
 var city_height_max: float = 0.0
 var city_tier_counts: Dictionary = {}
 var city_heights: Array[float] = []
+var loading_screen = null
 
 var title_overlay = null
 var mission_label = null
@@ -74,22 +71,52 @@ var result_overlay = null
 var final_beacon_position = Vector3(62.0, 51.5, 66.0)
 
 func _ready():
+    game_state = "loading"
     _setup_input()
     _load_save()
+    _build_loading_screen()
+    await get_tree().process_frame
+    _set_loading_progress(0.06, "CALIBRATING SKYLINE")
     _build_environment()
-    _build_ground_and_city()
-    _build_world_decorator()
+    await get_tree().process_frame
+    await _build_ground_and_city()
+    _set_loading_progress(0.72, "SKINNING CITY FACADES")
+    await _build_world_decorator()
+    _set_loading_progress(0.82, "SPAWNING RUNNER")
     _build_player()
+    await get_tree().process_frame
+    _set_loading_progress(0.87, "CONNECTING AUDIO")
     _build_audio()
+    _set_loading_progress(0.92, "BUILDING INTERFACE")
     _build_ui()
+    await get_tree().process_frame
+    _set_loading_progress(0.97, "REGISTERING GRAFFITI ROUTES")
     _build_graffiti()
     _show_menu()
+    # Keep keyboard input locked until the loading layer has fully faded. The
+    # completed menu remains visible underneath for a seamless transition.
+    game_state = "loading"
+    if loading_screen != null:
+        await loading_screen.finish_loading()
+        loading_screen.queue_free()
+        loading_screen = null
+    game_state = "menu"
+
+func _build_loading_screen():
+    loading_screen = CanvasLayer.new()
+    loading_screen.name = "StartupLoadingScreen"
+    loading_screen.set_script(LOADING_SCREEN_SCRIPT)
+    add_child(loading_screen)
+
+func _set_loading_progress(value: float, stage: String):
+    if loading_screen != null and is_instance_valid(loading_screen):
+        loading_screen.call("set_progress", value, stage)
 
 func _build_world_decorator():
     var decorator = WORLD_DECORATOR_SCRIPT.new()
     decorator.name = "WorldDecorator"
     add_child(decorator)
-    decorator.decorate_city(city_root if city_root != null else self)
+    await decorator.decorate_city(city_root if city_root != null else self)
 
 func _build_graffiti():
     var graffiti_manager = GRAFFITI_MANAGER_SCRIPT.new()
@@ -257,6 +284,8 @@ func _build_ground_and_city():
             )
 
     _add_avenue_lane_paint()
+    _set_loading_progress(0.20, "LAYING OUT STREETS")
+    await get_tree().process_frame
 
     # Main playable towers. Sizes intentionally vary so good swing anchors differ from bad ones.
     var specs = [
@@ -320,6 +349,8 @@ func _build_ground_and_city():
     # Keep all legacy mission, ring, drone, cable, and graffiti routes free of
     # newly generated geometry.
     occupied.append(Rect2(Vector2(-106, -100), Vector2(212, 200)))
+    _set_loading_progress(0.34, "RESTORING CENTRAL DISTRICT")
+    await get_tree().process_frame
 
     # Preserve the known-good prototype parks and reserve several larger
     # setbacks so the expanded districts have landmarks and breathing room.
@@ -343,10 +374,14 @@ func _build_ground_and_city():
         occupied.append(_building_rect(space[0], space[1]))
 
     index = _add_skyline_landmarks(index, occupied)
-    _add_outer_city_buildings(index, occupied)
+    _set_loading_progress(0.40, "RAISING SKYLINE LANDMARKS")
+    await get_tree().process_frame
+    await _add_outer_city_buildings(index, occupied)
     _add_street_lights()
     _add_billboards()
     _report_city_generation()
+    _set_loading_progress(0.69, "CITY COLLISION READY")
+    await get_tree().process_frame
 
 
 func _build_city_hierarchy() -> void:
@@ -495,6 +530,7 @@ func _add_outer_city_buildings(start_index: int, occupied: Array[Rect2]) -> void
     # receive their alley-separated second, third, or fourth volume.
     var lot_groups: Array = []
     var max_lot_count: int = 0
+    var buildings_since_yield: int = 0
     for block in blocks:
         var lots: Array[Rect2] = _lots_for_block(block, rng)
         lot_groups.append(lots)
@@ -509,6 +545,26 @@ func _add_outer_city_buildings(start_index: int, occupied: Array[Rect2]) -> void
                 continue
             if _try_add_city_lot(index, lots[lot_layer], rng, occupied):
                 index += 1
+                buildings_since_yield += 1
+                if buildings_since_yield >= 8:
+                    buildings_since_yield = 0
+                    _set_loading_progress(
+                        lerpf(
+                            0.40,
+                            0.68,
+                            clampf(
+                                float(city_building_count)
+                                / float(CITY_BUILDING_TARGET),
+                                0.0,
+                                1.0
+                            )
+                        ),
+                        "ASSEMBLING DISTRICT %03d / %03d" % [
+                            city_building_count,
+                            CITY_BUILDING_TARGET
+                        ]
+                    )
+                    await get_tree().process_frame
         if city_building_count >= CITY_BUILDING_TARGET:
             break
 
@@ -1033,83 +1089,12 @@ func _build_ui():
     subtitle.add_theme_font_size_override("font_size",20)
     title_overlay.add_child(subtitle)
 
-    character_overlay = ColorRect.new()
+    character_overlay = Control.new()
+    character_overlay.name = "CharacterSelectScreen"
+    character_overlay.set_script(CHARACTER_SELECT_SCRIPT)
     character_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-    character_overlay.color = Color(0.012,0.018,0.040,0.96)
     character_overlay.visible = false
     ui.add_child(character_overlay)
-
-    var select_title = Label.new()
-    select_title.position = Vector2(42,28)
-    select_title.text = "SELECT YOUR CHARACTER"
-    select_title.add_theme_font_size_override("font_size",32)
-    character_overlay.add_child(select_title)
-
-    var preview_container = SubViewportContainer.new()
-    preview_container.position = Vector2(40,92)
-    preview_container.size = Vector2(560,560)
-    preview_container.stretch = true
-    character_overlay.add_child(preview_container)
-
-    var preview_viewport = SubViewport.new()
-    preview_viewport.size = Vector2i(560,560)
-    preview_viewport.transparent_bg = true
-    preview_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-    preview_container.add_child(preview_viewport)
-
-    var preview_camera = Camera3D.new()
-    preview_camera.position = Vector3(0.0,0.15,5.6)
-    preview_camera.fov = 45.0
-    preview_camera.current = true
-    preview_viewport.add_child(preview_camera)
-
-    var key_light = DirectionalLight3D.new()
-    key_light.rotation_degrees = Vector3(-30,-25,0)
-    key_light.light_energy = 1.8
-    preview_viewport.add_child(key_light)
-    var rim_light = DirectionalLight3D.new()
-    rim_light.rotation_degrees = Vector3(15,145,0)
-    rim_light.light_energy = 0.8
-    rim_light.light_color = Color("#79b8ff")
-    preview_viewport.add_child(rim_light)
-
-    preview_character = Node3D.new()
-    preview_character.set_script(CHARACTER_PREVIEW_SCRIPT)
-    preview_character.position = Vector3(0,-0.05,0)
-    preview_viewport.add_child(preview_character)
-
-    character_name_label = Label.new()
-    character_name_label.position = Vector2(650,115)
-    character_name_label.size = Vector2(560,55)
-    character_name_label.add_theme_font_size_override("font_size",36)
-    character_overlay.add_child(character_name_label)
-
-    character_class_label = Label.new()
-    character_class_label.position = Vector2(652,166)
-    character_class_label.size = Vector2(520,40)
-    character_class_label.add_theme_font_size_override("font_size",20)
-    character_overlay.add_child(character_class_label)
-
-    character_stats_label = Label.new()
-    character_stats_label.position = Vector2(652,224)
-    character_stats_label.size = Vector2(520,220)
-    character_stats_label.add_theme_font_size_override("font_size",18)
-    character_overlay.add_child(character_stats_label)
-
-    character_info_label = Label.new()
-    character_info_label.position = Vector2(652,448)
-    character_info_label.size = Vector2(550,210)
-    character_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-    character_info_label.add_theme_font_size_override("font_size",16)
-    character_overlay.add_child(character_info_label)
-
-    var select_help = Label.new()
-    select_help.position = Vector2(40,670)
-    select_help.size = Vector2(1200,42)
-    select_help.text = "A / D: change character     ENTER: LOCK IN     •     Model rotates automatically"
-    select_help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    select_help.add_theme_font_size_override("font_size",18)
-    character_overlay.add_child(select_help)
 
     audio_overlay = ColorRect.new()
     audio_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1198,16 +1183,8 @@ func _change_character(direction):
     _refresh_character_select()
 
 func _refresh_character_select():
-    var data = ROSTER.get_character(selected_character)
-    character_name_label.text = data["name"]
-    character_class_label.text = data["class"]
-    var stats = data["stats"]
-    character_stats_label.text = "SPEED          %s\nACCELERATION   %s\nSWING          %s\nAIR CONTROL    %s\nCOMBAT         %s\nDEFENSE        %s" % [
-        ROSTER.stars(stats["speed"]), ROSTER.stars(stats["acceleration"]), ROSTER.stars(stats["swing"]),
-        ROSTER.stars(stats["air"]), ROSTER.stars(stats["combat"]), ROSTER.stars(stats["defense"])]
-    character_info_label.text = "MOVEMENT\n%s\n\nSPECIAL\n%s\n\n+ %s\n- %s" % [data["movement"], data["special"], data["strength"], data["weakness"]]
-    if preview_character != null and preview_character.has_method("rebuild"):
-        preview_character.rebuild(selected_character)
+    if character_overlay != null and character_overlay.has_method("show_character"):
+        character_overlay.call("show_character", selected_character)
 
 func _lock_character_and_start():
     character_overlay.visible = false
