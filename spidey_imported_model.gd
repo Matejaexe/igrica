@@ -1,43 +1,156 @@
 extends RefCounted
 
-const MODEL: PackedScene = preload("res://models/spidey/spidey_funk_alt_v2.glb")
-const RIG_CONTROLLER_SCRIPT: Script = preload("res://spidey_rig_controller.gd")
+# The gameplay visual now comes directly from the Blender source that contains
+# SpideyCleanRig + the authored Run_FromReference_01 Action.
+const MODEL_PATH: String = (
+    "res://assets/characters/spidey/blender/"
+    + "spidey_run_from_reference_v1.blend"
+)
+const ANIMATION_DRIVER_SCRIPT: Script = preload(
+    "res://spidey_blender_animation_driver.gd"
+)
 
-const TEX_COMIC: Texture2D = preload("res://art/spidey/spidey_comic.png")
-const TEX_CLASSIC: Texture2D = preload("res://art/spidey/spidey_classic.png")
-const TEX_NOIR: Texture2D = preload("res://art/spidey/spidey_noir.png")
-const TEX_ULTIMATE: Texture2D = preload("res://art/spidey/spidey_ultimate.png")
-const TEX_IRON: Texture2D = preload("res://art/spidey/spidey_iron.png")
+const TEX_COMIC: Texture2D = preload(
+    "res://art/spidey/spidey_comic.png"
+)
+const TEX_CLASSIC: Texture2D = preload(
+    "res://art/spidey/spidey_classic.png"
+)
+const TEX_NOIR: Texture2D = preload(
+    "res://art/spidey/spidey_noir.png"
+)
+const TEX_ULTIMATE: Texture2D = preload(
+    "res://art/spidey/spidey_ultimate.png"
+)
+const TEX_IRON: Texture2D = preload(
+    "res://art/spidey/spidey_iron.png"
+)
 
+# The clean Blender rig was built from the same original visible mesh, so keep
+# the established player presentation calibration for the first in-game test.
 const MODEL_SCALE: float = 1.62
 const MODEL_Y_OFFSET: float = -1.34
-# Bind-pose mesh accessor spans X=-0.593679..0.595940. This is the
-# conservative horizontal half-width used for wall-run visual clearance.
-const MODEL_BIND_HALF_WIDTH: float = 0.596
-const MODEL_SCALED_HALF_WIDTH: float = MODEL_BIND_HALF_WIDTH * MODEL_SCALE
+
 
 static func build(parent: Node3D, data: Dictionary) -> Dictionary:
-    # Traversal tricks rotate only the visible imported character around its
-    # own presentation pivot. The CharacterBody/visual root remains available
-    # for movement-facing, wall clearance and camera-safe traversal lean.
+    var refs: Dictionary = _create_compatibility_proxies(parent)
+
+    var packed_model: PackedScene = _load_model_scene()
+    if packed_model == null:
+        return refs
+
     var trick_pivot := Node3D.new()
-    trick_pivot.name = "BRCTraversalTrickPivot"
+    trick_pivot.name = "BlenderTraversalPivot"
     parent.add_child(trick_pivot)
 
-    var model: Node3D = MODEL.instantiate() as Node3D
-    model.name = "BRCSpidey"
+    var model: Node3D = packed_model.instantiate() as Node3D
+    if model == null:
+        push_error("[SPIDEY BLENDER] Blender scene could not instantiate.")
+        return refs
+
+    model.name = "BlenderSpidey"
     model.position = Vector3(0.0, MODEL_Y_OFFSET, 0.0)
     model.rotation.y = PI
     model.scale = Vector3.ONE * MODEL_SCALE
     trick_pivot.add_child(model)
 
     var skeleton: Skeleton3D = _find_skeleton(model)
-    var character_id: String = String(data.get("id", "crimson"))
-    var texture: Texture2D = _texture_for_character(character_id)
-    var tint: Color = _tint_for_character(character_id)
-    _apply_character_material(model, texture, tint)
+    var animation_player: AnimationPlayer = _find_animation_player(model)
 
-    # Invisible compatibility proxies expected by player.gd.
+    var character_id: String = String(data.get("id", "crimson"))
+    _apply_character_material(
+        model,
+        _texture_for_character(character_id),
+        _tint_for_character(character_id)
+    )
+
+    if skeleton == null:
+        push_warning(
+            "[SPIDEY BLENDER] Model loaded, but Skeleton3D was not found."
+        )
+
+    if animation_player == null:
+        push_error(
+            "[SPIDEY BLENDER] Model loaded, but AnimationPlayer was not found."
+        )
+    else:
+        var driver := Node.new()
+        driver.name = "SpideyBlenderAnimationDriver"
+        driver.set_script(ANIMATION_DRIVER_SCRIPT)
+        parent.add_child(driver)
+        driver.call(
+            "setup",
+            animation_player,
+            parent.get_parent()
+        )
+
+    refs["model"] = model
+    refs["skeleton"] = skeleton
+    refs["animation_player"] = animation_player
+    return refs
+
+
+static func build_preview(parent: Node3D, data: Dictionary) -> Dictionary:
+    var packed_model: PackedScene = _load_model_scene()
+    if packed_model == null:
+        return {
+            "model": null,
+            "skeleton": null,
+            "animation_player": null
+        }
+
+    var model: Node3D = packed_model.instantiate() as Node3D
+    if model == null:
+        return {
+            "model": null,
+            "skeleton": null,
+            "animation_player": null
+        }
+
+    model.name = "BlenderSpideyPreview"
+    model.position = Vector3(0.0, MODEL_Y_OFFSET, 0.0)
+    model.rotation.y = PI
+    model.scale = Vector3.ONE * MODEL_SCALE
+    parent.add_child(model)
+
+    var skeleton: Skeleton3D = _find_skeleton(model)
+    var animation_player: AnimationPlayer = _find_animation_player(model)
+
+    var character_id: String = String(data.get("id", "crimson"))
+    _apply_character_material(
+        model,
+        _texture_for_character(character_id),
+        _tint_for_character(character_id)
+    )
+
+    # The old preview script targets the previous skeleton names. Until a
+    # dedicated Blender idle exists, a slower in-place run is a safe preview
+    # and avoids showing the new rig in a T-pose.
+    _start_preview_animation(animation_player)
+
+    return {
+        "model": model,
+        "skeleton": skeleton,
+        "animation_player": animation_player
+    }
+
+
+static func _load_model_scene() -> PackedScene:
+    var resource: Resource = load(MODEL_PATH)
+    var packed_scene := resource as PackedScene
+    if packed_scene == null:
+        push_error(
+            "[SPIDEY BLENDER] Could not load "
+            + MODEL_PATH
+            + ". Make sure Godot's Blender importer is enabled and Blender "
+            + "is configured in Editor Settings."
+        )
+    return packed_scene
+
+
+static func _create_compatibility_proxies(parent: Node3D) -> Dictionary:
+    # player.gd still keeps these references for legacy pose code. They are
+    # invisible and never deform the Blender mesh.
     var torso_proxy := Node3D.new()
     torso_proxy.name = "ImportedTorsoProxy"
     parent.add_child(torso_proxy)
@@ -58,31 +171,6 @@ static func build(parent: Node3D, data: Dictionary) -> Dictionary:
     leg_r_proxy.name = "ImportedLegRProxy"
     parent.add_child(leg_r_proxy)
 
-    # Two real web origins, one for each hand.
-    var web_origin_l := Marker3D.new()
-    web_origin_l.name = "WebOriginL"
-    parent.add_child(web_origin_l)
-
-    var web_origin_r := Marker3D.new()
-    web_origin_r.name = "WebOriginR"
-    parent.add_child(web_origin_r)
-
-    if skeleton != null:
-        var controller := Node.new()
-        controller.name = "SpideyRigController"
-        controller.set_script(RIG_CONTROLLER_SCRIPT)
-        parent.add_child(controller)
-        controller.call(
-            "setup",
-            skeleton,
-            parent.get_parent(),
-            web_origin_l,
-            web_origin_r,
-            trick_pivot
-        )
-    else:
-        push_warning("BRC Spidey model loaded, but Skeleton3D was not found.")
-
     return {
         "torso_root": torso_proxy,
         "left_arm": arm_l_proxy,
@@ -91,29 +179,49 @@ static func build(parent: Node3D, data: Dictionary) -> Dictionary:
         "right_leg": leg_r_proxy
     }
 
-static func build_preview(parent: Node3D, data: Dictionary) -> Dictionary:
-    # Menu/loading previews need the real skinned BRC mesh, but not the gameplay
-    # controller (which requires a CharacterBody3D and traversal state). Keeping
-    # this path separate prevents a failed gameplay setup from leaving previews
-    # in the imported T-pose.
-    var model: Node3D = MODEL.instantiate() as Node3D
-    model.name = "BRCPreviewModel"
-    model.position = Vector3(0.0, MODEL_Y_OFFSET, 0.0)
-    model.rotation.y = PI
-    model.scale = Vector3.ONE * MODEL_SCALE
-    parent.add_child(model)
 
-    var skeleton: Skeleton3D = _find_skeleton(model)
-    var character_id: String = String(data.get("id", "crimson"))
-    _apply_character_material(
-        model,
-        _texture_for_character(character_id),
-        _tint_for_character(character_id)
-    )
-    return {
-        "model": model,
-        "skeleton": skeleton
-    }
+static func _start_preview_animation(
+    animation_player: AnimationPlayer
+) -> void:
+    if animation_player == null:
+        return
+
+    var run_name: StringName = _find_run_animation(animation_player)
+    if run_name == &"":
+        return
+
+    var animation: Animation = animation_player.get_animation(run_name)
+    if animation != null:
+        animation.loop_mode = Animation.LOOP_LINEAR
+
+    animation_player.speed_scale = 0.62
+    animation_player.play(run_name)
+
+
+static func _find_run_animation(
+    animation_player: AnimationPlayer
+) -> StringName:
+    if animation_player == null:
+        return &""
+
+    var names: PackedStringArray = animation_player.get_animation_list()
+
+    for clip_name: String in names:
+        if clip_name == "Run_FromReference_01":
+            return StringName(clip_name)
+
+    for clip_name: String in names:
+        var lowered: String = clip_name.to_lower()
+        if lowered.contains("run_fromreference_01"):
+            return StringName(clip_name)
+
+    for clip_name: String in names:
+        var lowered: String = clip_name.to_lower()
+        if lowered.contains("run") and lowered != "reset":
+            return StringName(clip_name)
+
+    return &""
+
 
 static func _texture_for_character(character_id: String) -> Texture2D:
     match character_id:
@@ -126,6 +234,7 @@ static func _texture_for_character(character_id: String) -> Texture2D:
         _:
             return TEX_COMIC
 
+
 static func _tint_for_character(character_id: String) -> Color:
     match character_id:
         "azure":
@@ -135,29 +244,57 @@ static func _tint_for_character(character_id: String) -> Color:
         _:
             return Color.WHITE
 
+
 static func _find_skeleton(node: Node) -> Skeleton3D:
     if node is Skeleton3D:
         return node as Skeleton3D
+
     for child_value in node.get_children():
         var child: Node = child_value
         var result: Skeleton3D = _find_skeleton(child)
         if result != null:
             return result
+
     return null
 
-static func _apply_character_material(node: Node, texture: Texture2D, tint: Color) -> void:
+
+static func _find_animation_player(node: Node) -> AnimationPlayer:
+    if node is AnimationPlayer:
+        return node as AnimationPlayer
+
+    for child_value in node.get_children():
+        var child: Node = child_value
+        var result: AnimationPlayer = _find_animation_player(child)
+        if result != null:
+            return result
+
+    return null
+
+
+static func _apply_character_material(
+    node: Node,
+    texture: Texture2D,
+    tint: Color
+) -> void:
     if node is MeshInstance3D:
         var mesh_instance := node as MeshInstance3D
         if mesh_instance.mesh != null:
-            for surface_index in range(mesh_instance.mesh.get_surface_count()):
+            for surface_index in range(
+                mesh_instance.mesh.get_surface_count()
+            ):
                 var material := StandardMaterial3D.new()
                 material.albedo_texture = texture
                 material.albedo_color = tint
                 material.roughness = 0.84
                 material.metallic = 0.0
                 material.cull_mode = BaseMaterial3D.CULL_DISABLED
-                material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
-                mesh_instance.set_surface_override_material(surface_index, material)
+                material.texture_filter = (
+                    BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+                )
+                mesh_instance.set_surface_override_material(
+                    surface_index,
+                    material
+                )
 
     for child_value in node.get_children():
         var child: Node = child_value

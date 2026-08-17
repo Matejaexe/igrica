@@ -2,7 +2,6 @@ extends CharacterBody3D
 
 const ROSTER = preload("res://character_roster.gd")
 const SPIDEY_IMPORTED = preload("res://spidey_imported_model.gd")
-const HERO_MODEL = preload("res://hero_model.gd")
 
 signal health_changed(value)
 signal player_died()
