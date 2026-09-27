@@ -1,0 +1,16 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+PASS: Drone announces attack before applying damage
+PASS: Telegraphed attack reaches the player at valid combat distance
+PASS: Ground dodge grants a brief invulnerable window
+PASS: Dodge cooldown prevents continuous retriggering
+PASS: Player melee cannot damage an enemy through a wall
+PASS: Enemy strike cannot damage the player through a wall
+PASS: Player hit interrupts an enemy windup
+COMBO_SEQUENCE: [1, 2, 3, 1]
+PASS: Combo cycles left/right/finisher and restarts
+PASS: Second combo strike selects its own animation
+PASS: Repeated attacks restart their animation
+PASS: Defeated enemies cannot be hit or rewarded twice
+PASS: Respawn resets combat and evasion state
+COMBAT_RESULT: 0 failures

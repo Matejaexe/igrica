@@ -39,6 +39,13 @@ func run():
     main.skyline_challenge.toggle()
     await process_frame
     check(not activity.running and main.skyline_challenge.running,"Starting the flight route cancels combat safely")
+    activity.toggle()
+    var mission_spawn = Vector3(12, 30, 45)
+    main.mission = 1
+    main.player.set_spawn_position(mission_spawn)
+    activity._process(.1)
+    await process_frame
+    check(not activity.running and activity.actors.is_empty() and main.player.spawn_position == mission_spawn,"Mission transition cleans up patrol without overwriting its new respawn point")
     main.queue_free()
     await process_frame
     print("PATROL_ACTIVITY_RESULT: ",failures," failures")

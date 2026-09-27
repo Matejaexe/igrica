@@ -83,7 +83,7 @@ func _on_defeated(drone):
 func _process(delta):
     if not is_instance_valid(city): return
     if city.game_state != "playing" or city.mission != 0:
-        if running: cancel("")
+        if running: cancel("", city.mission == 0)
         return
     if Input.is_action_just_pressed("patrol"): toggle()
     if not running: return
@@ -97,10 +97,10 @@ func _process(delta):
     elif remaining > 0:
         status = "WAVE %d/3 · %d DRONES · %.1fs / Alt evade" % [wave,remaining,elapsed]
 
-func cancel(message: String):
+func cancel(message: String, restore_spawn: bool = true):
     running = false
     intermission = 0
-    player.set_spawn_position(previous_spawn)
+    if restore_spawn: player.set_spawn_position(previous_spawn)
     for actor in actors:
         if is_instance_valid(actor): actor.queue_free()
     actors.clear()
