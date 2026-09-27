@@ -1,0 +1,19 @@
+npm notice run @satelliteoflove/godot-mcp@4.1.11 test:protocol
+npm notice run tsx scripts/protocol-smoke.ts
+initialize + tools/list (full mode)
+  ok   initialize returns serverInfo.name godot-mcp
+  ok   serverInfo carries a description
+  ok   capabilities declare exactly { tools }
+  ok   instructions lead with capability routing
+  ok   tools/list returns 21 tools
+  ok   every inputSchema is a flat object (no oneOf/anyOf/allOf at root)
+  ok   no tool declares outputSchema
+  ok   every tool has a titled annotation
+  ok   every description is under 2KB
+  ok   invalid tool call returns isError (not a protocol error)
+  ok   validation error is humanized, listing valid actions
+tools/list (read-only mode, via the --read-only flag)
+  ok   read-only mode registers 12 tools
+  ok   every read-only-mode tool is readOnlyHint true
+
+All protocol smoke checks passed.
