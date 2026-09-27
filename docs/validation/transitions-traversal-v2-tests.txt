@@ -1,0 +1,16 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+PASS: Aim assist finds offset building when center aim misses
+PASS: Assisted anchor lies on real elevated building surface
+PASS: Empty sky cannot create a web anchor
+PASS: Swing arm aligns actual shoulder-to-hand chain with anchor
+PASS: Web origin is cached from final modified hand
+PASS: Safe release starts cosmetic trick without changing velocity
+PASS: Release trick rotates only presentation pivot
+PASS: Collision body remains upright during aerial trick
+PASS: Interrupted trick smoothly returns to normal presentation
+PASS: Fast head-on approach enters upward wall-run
+PASS: Upward wall-run supplies lift
+PASS: Wall climbing expires instead of granting infinite ascent
+PASS: Respawn resets extended traversal states
+TRAVERSAL_V2_RESULT: 0 failures

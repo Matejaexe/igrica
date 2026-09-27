@@ -1,0 +1,31 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[CITY] 320 buildings | heights 8.0 / 34.8 / 190.0 m (min / median / max) | tiers { "medium": 136, "tall": 94, "low": 85, "landmark": 5 } | seed 6035393
+[CITY LIFE] 29742 detail instances / 418 batches; 280 pedestrians / 128 clear sidewalk loops
+ERROR: Parameter "material" is null.
+   at: material_get_instance_shader_parameters (servers/rendering/dummy/storage/material_storage.cpp:264)
+PASS: Full city reaches main menu
+PASS: Expanded 320-building city loads
+PASS: City populates 280 pedestrians
+PASS: Crowd has distributed sidewalk routes
+PASS: All pedestrian loops avoid building footprints
+PASS: Street details are batched, not individual render nodes
+PASS: Large street props have player collision
+PASS: Pedestrians advance along routes
+PASS: Character 0 loads all traversal states
+PASS: Character 1 loads all traversal states
+PASS: Character 2 loads all traversal states
+PASS: Character 3 loads all traversal states
+PASS: Free roam opens without timed objectives
+PASS: Character select enters first mission
+PASS: Actual physics input moves player in city
+PASS: Jump input produces upward motion
+PASS: Traversal mission still initializes
+PASS: Combat mission still spawns enemies
+PASS: Practice route completes and saves best time
+PASS: Practice record reloads from disk
+GAME_SMOKE_RESULT: 0 failures
+WARNING: 2 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 1 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

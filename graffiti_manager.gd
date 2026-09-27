@@ -178,7 +178,7 @@ func _build_ui() -> void:
     var title := Label.new()
     title.position = Vector2(0, 28)
     title.set_anchors_preset(Control.PRESET_TOP_WIDE)
-    title.size = Vector2(0, 64)
+    title.offset_bottom = title.offset_top + 64
     title.text = "GRAFFITI // FOLLOW THE NODES"
     title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     title.add_theme_font_size_override("font_size", 30)
@@ -187,7 +187,7 @@ func _build_ui() -> void:
     var help := Label.new()
     help.position = Vector2(0, 78)
     help.set_anchors_preset(Control.PRESET_TOP_WIDE)
-    help.size = Vector2(0, 50)
+    help.offset_bottom = help.offset_top + 50
     help.text = "Hold LMB and drag through every point in order.   ESC = cancel"
     help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     help.add_theme_font_size_override("font_size", 17)

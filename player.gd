@@ -6,7 +6,7 @@ const SPIDEY_IMPORTED = preload("res://spidey_imported_model.gd")
 signal health_changed(value)
 signal player_died()
 
-enum MovementState { GROUND, AIR, SWING, WALL_RIDE, ZIP }
+enum MovementState { GROUND, AIR, SWING, WALL_RIDE, ZIP, WALL_CLIMB, GLIDE, VAULT }
 
 const RUN_SPEED = 17.0
 const GROUND_ACCEL = 50.0
@@ -22,8 +22,10 @@ const MOUSE_SENSITIVITY = 0.0024
 
 const GRAPPLE_RANGE = 105.0
 const MIN_ROPE_LENGTH = 4.5
-const MAX_ROPE_LENGTH = 54.0
-const ROPE_STIFFNESS = 52.0
+const MAX_ROPE_LENGTH = GRAPPLE_RANGE
+const ROPE_RECOVERY_SPEED = 12.0
+const COYOTE_TIME = 0.12
+const JUMP_BUFFER_TIME = 0.12
 const SWING_INPUT_ACCEL = 25.0
 const SWING_TANGENT_BOOST = 13.0
 const REEL_IN_SPEED = 11.0
@@ -48,6 +50,18 @@ const WALL_MESH_SAFE_MARGIN = 0.06
 # includes the compact wall lean while keeping the torso and shoes outside.
 const WALL_RUN_POSED_HALF_WIDTH = 0.58
 
+const TARGETING = preload("res://systems/grapple_targeting.gd")
+var grapple_preview: Dictionary = {}
+var grapple_scan_time = 0.0
+var release_trick_time = 0.0
+var release_trick_duration = 0.7
+var release_trick_sign = 1.0
+
+var coyote_time = 0.0
+var jump_buffer = 0.0
+var animation_driver = null
+var swing_hand = "Right"
+
 var active = false
 var character_index = 0
 var character_data = {}
@@ -65,6 +79,9 @@ var camera = null
 var visual_root = null
 var web_line = null
 var web_mesh = null
+var gliding = false
+var vault_pose_time = 0.0
+const FLIGHT = preload("res://systems/flight_physics.gd")
 var grappling = false
 var grapple_point = Vector3.ZERO
 var rope_length = 0.0
@@ -74,7 +91,15 @@ var run_time = 0.0
 var health = 100
 var invuln_time = 0.0
 var attack_cooldown = 0.0
+var attack_sequence = 0
+var dodge_time = 0.0
+var dodge_cooldown = 0.0
+var dodge_direction = Vector3.ZERO
+var dodge_side = "Right"
 var camera_kick = 0.0
+var wall_climbing = false
+var wall_climb_time = 0.0
+var pre_slide_velocity = Vector3.ZERO
 var wall_riding = false
 var wall_ride_normal = Vector3.ZERO
 var wall_ride_time = 0.0
@@ -99,6 +124,10 @@ var brc_traversal_root_pitch = 0.0
 var brc_traversal_root_yaw = 0.0
 var was_on_floor = false
 var landing_feedback = 0.0
+# Contact events are animation metadata; they never alter motion.
+var landing_sequence = 0
+var landing_impact_speed = 0.0
+var landing_travel_speed = 0.0
 var last_vertical_speed = 0.0
 var swing_pose_time = 0.0
 var wall_visual_offset = max(
@@ -121,8 +150,16 @@ func _ready():
 	spawn_position = global_position
 	_build_collision()
 	_build_detailed_character()
+	var wings = preload("res://systems/glide_wings.gd").new()
+	wings.player = self
+	add_child(wings)
 	_build_camera()
 	_build_web_line()
+	var overlay = CanvasLayer.new()
+	add_child(overlay)
+	var reticle = preload("res://systems/grapple_reticle.gd").new()
+	reticle.player = self
+	overlay.add_child(reticle)
 
 func set_character(index):
 	character_index = posmod(index, ROSTER.count())
@@ -153,6 +190,11 @@ func set_spawn_position(pos):
 func _unhandled_input(event):
 	if not active:
 		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F2:
+		var bindings = preload("res://input_bindings.gd")
+		grappling = false
+		bindings.mouse_web = not bindings.mouse_web
+		bindings.apply_mouse_preset()
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		yaw -= event.relative.x * MOUSE_SENSITIVITY
 		pitch -= event.relative.y * MOUSE_SENSITIVITY
@@ -170,11 +212,14 @@ func _physics_process(delta):
 
 	invuln_time = max(0.0, invuln_time - delta)
 	attack_cooldown = max(0.0, attack_cooldown - delta)
+	dodge_time = maxf(0,dodge_time-delta)
+	dodge_cooldown = maxf(0,dodge_cooldown-delta)
 	special_cooldown = max(0.0, special_cooldown - delta)
 	combo_window = max(0.0, combo_window - delta)
 	if combo_window <= 0.0:
 		combo_step = 0
 	camera_kick = move_toward(camera_kick, 0.0, 5.0 * delta)
+	vault_pose_time = maxf(0.0,vault_pose_time-delta)
 	zip_pose_time = max(0.0, zip_pose_time - delta)
 	swing_release_pose_time = max(0.0, swing_release_pose_time - delta)
 	wall_jump_pose_time = max(0.0, wall_jump_pose_time - delta)
@@ -190,23 +235,57 @@ func _physics_process(delta):
 	camera_pivot.rotation.y = yaw
 	camera_pivot.rotation.z = lerp(camera_pivot.rotation.z, wall_roll, min(1.0, 6.0 * delta))
 
+	coyote_time = COYOTE_TIME if is_on_floor() else maxf(0.0, coyote_time - delta)
+	jump_buffer = maxf(0.0, jump_buffer - delta)
+	if Input.is_action_just_pressed("jump"):
+		jump_buffer = JUMP_BUFFER_TIME
+
+	grapple_scan_time -= delta
+	if grapple_scan_time <= 0.0:
+		grapple_scan_time = 0.12
+		grapple_preview = TARGETING.find_anchor(self, false)
+	release_trick_time = maxf(0.0, release_trick_time - delta)
+	if is_on_floor() or grappling or wall_riding or zip_pose_time > 0 or attack_pose_time > 0:
+		release_trick_time = 0.0
 	var wish_dir = _get_camera_relative_input()
 
+	if Input.is_action_just_pressed("glide"):
+		_toggle_glide()
 	_handle_grapple_input()
+	if Input.is_action_just_pressed("dodge"):
+		_begin_dodge(wish_dir)
 	_handle_attack_input()
-	_handle_movement(delta, wish_dir)
+	if gliding:
+		velocity = FLIGHT.step(velocity,wish_dir,Input.is_action_pressed("dive"),delta)
+		if Vector2(velocity.x,velocity.z).length() < 5 or attack_pose_time > 0:
+			gliding = false
+		var heading = Vector3(velocity.x,0,velocity.z)
+		if heading.length() > .1:
+			visual_root.rotation.y = lerp_angle(visual_root.rotation.y,atan2(-heading.x,-heading.z),1-exp(-9*delta))
+	else:
+		_handle_movement(delta, wish_dir)
 
+	if dodge_time > 0:
+		velocity.x = dodge_direction.x*15
+		velocity.z = dodge_direction.z*15
 	if grappling:
 		_apply_swing_physics(delta, wish_dir)
 
+	pre_slide_velocity = velocity
 	move_and_slide()
+	if is_on_floor() or is_on_wall() or is_on_ceiling():
+		gliding = false
 
 	_remember_wall_normal(delta)
 	_update_wall_ride(delta)
 	_update_movement_state()
 	_update_camera_feedback(delta)
-	if is_on_floor() and not was_on_floor and last_vertical_speed < -8.0:
-		landing_feedback = clamp(abs(last_vertical_speed) / 24.0, 0.25, 0.85)
+	if is_on_floor() and not was_on_floor and pre_slide_velocity.y < -3.0:
+		landing_sequence += 1
+		landing_impact_speed = -pre_slide_velocity.y
+		landing_travel_speed = Vector2(velocity.x, velocity.z).length()
+		if pre_slide_velocity.y < -8.0:
+			landing_feedback = clamp(landing_impact_speed / 24.0, 0.25, 0.85)
 	was_on_floor = is_on_floor()
 	last_vertical_speed = velocity.y
 	_update_web_visual()
@@ -243,6 +322,7 @@ func _build_detailed_character():
 	add_child(visual_root)
 
 	var refs: Dictionary = SPIDEY_IMPORTED.build(visual_root, character_data)
+	animation_driver = refs.get("driver")
 	torso_root = refs["torso_root"]
 	left_arm = refs["left_arm"]
 	right_arm = refs["right_arm"]
@@ -358,10 +438,17 @@ func _build_camera():
 
 	camera = Camera3D.new()
 	camera.name = "Camera3D"
-	camera.position = Vector3(0.0, 1.35, 7.2)
+	var arm = SpringArm3D.new()
+	arm.name = "CameraCollisionArm"
+	arm.position.y = 1.35
+	arm.spring_length = 7.2
+	arm.margin = 0.25
+	arm.collision_mask = 1
+	arm.add_excluded_object(get_rid())
+	camera_pivot.add_child(arm)
 	camera.fov = BASE_CAMERA_FOV
 	camera.current = true
-	camera_pivot.add_child(camera)
+	arm.add_child(camera)
 
 func _build_web_line():
 	web_line = MeshInstance3D.new()
@@ -394,8 +481,15 @@ func _handle_movement(delta, wish_dir):
 		desired -= wall_ride_normal * desired.dot(wall_ride_normal)
 
 	if not grappling and not wall_riding:
-		velocity.x = move_toward(velocity.x, desired.x, accel * delta)
-		velocity.z = move_toward(velocity.z, desired.z, accel * delta)
+		var horizontal = Vector3(velocity.x, 0.0, velocity.z)
+		if is_on_floor():
+			horizontal = horizontal.move_toward(desired, accel * delta)
+		elif wish_dir.length() > 0.05:
+			# Air steering can turn earned speed without silently braking a release.
+			var retained_speed = maxf(horizontal.length(), speed * wish_dir.length())
+			horizontal = horizontal.move_toward(wish_dir.normalized() * retained_speed, accel * delta)
+		velocity.x = horizontal.x
+		velocity.z = horizontal.z
 	elif wall_riding:
 		var along_wall = Vector3(velocity.x, 0.0, velocity.z)
 		along_wall -= wall_ride_normal * along_wall.dot(wall_ride_normal)
@@ -420,13 +514,17 @@ func _handle_movement(delta, wish_dir):
 		var target_yaw = atan2(-facing_direction.x, -facing_direction.z)
 		visual_root.rotation.y = lerp_angle(visual_root.rotation.y, target_yaw, min(1.0, 13.0 * delta))
 
-	if wall_riding:
+	if wall_climbing:
+		velocity.y = move_toward(velocity.y, maxf(1.0, 14.0 - wall_climb_time * 8.0), 45.0 * delta)
+	elif wall_riding:
 		velocity.y = max(velocity.y - WALL_RIDE_GRAVITY * delta, -WALL_RIDE_MAX_FALL_SPEED)
 	elif not is_on_floor():
 		velocity.y = max(velocity.y - GRAVITY_FORCE * delta, -MAX_FALL_SPEED)
 
-	if Input.is_action_just_pressed("jump"):
+	if jump_buffer > 0.0:
 		if grappling:
+			jump_buffer = 0.0
+			_begin_release_trick()
 			grappling = false
 			movement_state = MovementState.AIR
 			# Releasing keeps the velocity earned from the rope simulation.
@@ -434,14 +532,21 @@ func _handle_movement(delta, wish_dir):
 			swing_release_pose_time = 0.34 if velocity.length() > 20.0 else 0.20
 			camera_kick = 0.8
 		elif wall_riding:
-			velocity = wall_ride_normal * WALL_JUMP_OUT + desired * 0.35
+			jump_buffer = 0.0
+			velocity = velocity.slide(wall_ride_normal) + wall_ride_normal * WALL_JUMP_OUT
 			velocity.y = WALL_JUMP_UP
 			wall_riding = false
+			wall_climbing = false
 			wall_jump_pose_time = 0.30
 			wall_normal_memory = Vector3.ZERO
-		elif is_on_floor():
+		elif is_on_floor() or coyote_time > 0.0:
+			if is_on_floor() and _can_vault(wish_dir):
+				vault_pose_time = .50
+			jump_buffer = 0.0
+			coyote_time = 0.0
 			velocity.y = JUMP_SPEED * lerp(0.96, 1.05, air_mult - 0.82)
 		elif wall_normal_memory.length() > 0.1:
+			jump_buffer = 0.0
 			# Animation metadata only: preserve the wall side before the coyote
 			# normal is cleared so the real BRC rig can mirror its push-off pose.
 			wall_ride_normal = wall_normal_memory
@@ -453,6 +558,7 @@ func _handle_movement(delta, wish_dir):
 		elif zip_pose_time <= 0.0 and air_jumps_remaining > 0:
 			# One clean air jump per ground contact. Preserve all horizontal
 			# momentum; only the vertical component gets the Rivals-like upward pop.
+			jump_buffer = 0.0
 			air_jumps_remaining -= 1
 			velocity.y = maxf(
 				velocity.y,
@@ -462,10 +568,53 @@ func _handle_movement(delta, wish_dir):
 			double_jump_sequence += 1
 			camera_kick = maxf(camera_kick, 0.32)
 
+func _toggle_glide():
+	if gliding:
+		gliding = false
+		return
+	if is_on_floor() or is_on_wall() or Vector2(velocity.x,velocity.z).length() < 8.0:
+		return
+	gliding = true
+	grappling = false
+	wall_riding = false
+	wall_climbing = false
+	release_trick_time = 0.0
+	vault_pose_time = 0.0
+	zip_pose_time = 0.0
+	swing_release_pose_time = 0.0
+
+func _can_vault(direction: Vector3) -> bool:
+	var speed = Vector2(velocity.x,velocity.z).length()
+	if speed < 6 or direction.length_squared() < .1:
+		return false
+	var ahead = direction.normalized()*clampf(speed*.30,2.8,6.0)
+	var feet = global_position-Vector3.UP*1.425
+	var space = get_world_3d().direct_space_state
+	var low = space.intersect_ray(PhysicsRayQueryParameters3D.create(feet+Vector3.UP*.45,feet+Vector3.UP*.45+ahead,1,[get_rid()]))
+	if low.is_empty(): return false
+	var high = space.intersect_ray(PhysicsRayQueryParameters3D.create(feet+Vector3.UP*1.6,feet+Vector3.UP*1.6+ahead,1,[get_rid()]))
+	if not high.is_empty(): return false
+	var sample = low.position+direction.normalized()*.12
+	var top = space.intersect_ray(PhysicsRayQueryParameters3D.create(Vector3(sample.x,feet.y+1.6,sample.z),Vector3(sample.x,feet.y,sample.z),1,[get_rid()]))
+	return not top.is_empty() and top.normal.y > .7 and top.position.y-feet.y < 1.35
+
+func _begin_release_trick():
+	# Presentation only; a short downward cast rejects flips close to rooftops.
+	if velocity.length() < 19.0 or velocity.y < -5.0:
+		return
+	var query = PhysicsRayQueryParameters3D.create(global_position,global_position-Vector3.UP*7,1,[get_rid()])
+	if not get_world_3d().direct_space_state.intersect_ray(query).is_empty():
+		return
+	release_trick_time = release_trick_duration
+	release_trick_sign = -1.0 if swing_hand == "Left" else 1.0
+
 func _handle_grapple_input():
 	if Input.is_action_just_pressed("grapple"):
 		_start_grapple(false)
 	if Input.is_action_just_released("grapple"):
+		if grappling:
+			_begin_release_trick()
+			swing_release_pose_time = 0.34
 		grappling = false
 	if Input.is_action_just_pressed("zip"):
 		_start_grapple(true)
@@ -474,17 +623,16 @@ func _start_grapple(zip_mode):
 	if camera == null:
 		return
 
-	var ray_from = camera.global_position
-	var ray_to = ray_from + (-camera.global_transform.basis.z) * GRAPPLE_RANGE
-	var query = PhysicsRayQueryParameters3D.create(ray_from, ray_to)
-	query.collision_mask = 1
-	query.exclude = [get_rid()]
-
-	var hit = get_world_3d().direct_space_state.intersect_ray(query)
+	var hit = TARGETING.find_anchor(self, zip_mode)
 	if hit.is_empty():
 		return
-
-	grapple_point = hit["position"]
+	gliding = false
+	vault_pose_time = 0.0
+	var candidate: Vector3 = hit.position
+	var origin = global_position + Vector3.UP * .72
+	grapple_point = candidate
+	swing_hand = "Right" if (candidate - origin).dot(camera.global_basis.x) >= 0.0 else "Left"
+	wall_riding = false
 
 	if zip_mode:
 		var zip_dir = (grapple_point - global_position).normalized()
@@ -495,13 +643,11 @@ func _start_grapple(zip_mode):
 		camera_kick = 0.65
 		return
 
-	var distance = global_position.distance_to(grapple_point)
-	rope_length = clamp(distance * 0.94, MIN_ROPE_LENGTH, MAX_ROPE_LENGTH)
+	var distance = (global_position + Vector3.UP * 0.72).distance_to(grapple_point)
+	rope_length = clamp(distance, MIN_ROPE_LENGTH, MAX_ROPE_LENGTH)
 	grappling = true
 	swing_pose_time = 0.0
 
-	var launch_dir = (grapple_point - global_position).normalized()
-	velocity += launch_dir * 5.5
 	camera_kick = 0.45
 
 func _apply_swing_physics(delta, wish_dir):
@@ -519,16 +665,6 @@ func _apply_swing_physics(delta, wish_dir):
 	elif Input.is_action_pressed("move_back"):
 		rope_length = min(MAX_ROPE_LENGTH, rope_length + REEL_OUT_SPEED * delta)
 
-	# Spring-like rope only pulls, never pushes.
-	if distance > rope_length:
-		var stretch = distance - rope_length
-		velocity += inward * stretch * ROPE_STIFFNESS * delta
-
-		# Remove only OUTWARD radial velocity. This preserves natural tangential momentum.
-		var radial_speed = velocity.dot(inward)
-		if radial_speed < 0.0:
-			velocity -= inward * radial_speed * 0.96
-
 	# Player input is projected onto the swing plane so anchor choice really matters.
 	if wish_dir.length() > 0.05:
 		var tangential_input = wish_dir - inward * wish_dir.dot(inward)
@@ -545,6 +681,14 @@ func _apply_swing_physics(delta, wish_dir):
 	if velocity.length() > max_speed:
 		velocity = velocity.normalized() * max_speed
 
+	# Unilateral velocity constraint: slack rope cannot push or pull. Predict
+	# next-step extension and remove only the outward radial component.
+	# Bounded recovery avoids explosive impulses when attaching a long web.
+	var required_inward = clampf((distance - rope_length) / delta, -INF, ROPE_RECOVERY_SPEED)
+	var radial_speed = velocity.dot(inward)
+	if radial_speed < required_inward:
+		velocity += inward * (required_inward - radial_speed)
+
 func _swing_tangent_direction():
 	if not grappling:
 		return Vector3.ZERO
@@ -554,10 +698,20 @@ func _swing_tangent_direction():
 		return tangent.normalized()
 	return Vector3.ZERO
 
+func _begin_dodge(direction: Vector3):
+	if dodge_cooldown > 0 or not is_on_floor(): return
+	dodge_direction = direction.normalized() if direction.length() > .1 else camera_pivot.global_basis.x
+	dodge_side = "Left" if dodge_direction.dot(visual_root.global_basis.x) < 0 else "Right"
+	dodge_time = .28
+	dodge_cooldown = .8
+	invuln_time = maxf(invuln_time,.22)
+	attack_pose_time = 0
+
 func _handle_attack_input():
+	if dodge_time > 0: return
 	if Input.is_action_just_pressed("attack") and attack_cooldown <= 0.0:
-		combo_step = combo_step + 1 if combo_window > 0.0 else 1
-		combo_step = min(combo_step, 3)
+		combo_step = combo_step % 3 + 1 if combo_window > 0.0 else 1
+		attack_sequence += 1
 		combo_window = 0.62
 		attack_cooldown = 0.25 if combo_step < 3 else 0.42
 		attack_pose_duration = attack_cooldown
@@ -577,16 +731,24 @@ func _strike_nearest(hit_range, damage, impulse):
 		if enemy == null or not is_instance_valid(enemy):
 			continue
 		var distance = global_position.distance_to(enemy.global_position)
-		if distance < best_distance:
+		if distance < best_distance and _combat_clear(enemy):
 			best = enemy
 			best_distance = distance
 	if best != null and best.has_method("hit"):
 		var hit_dir = best.global_position - global_position
 		best.hit(damage, hit_dir)
-		velocity += hit_dir.normalized() * impulse
+		var flat_hit = Vector3(hit_dir.x,0,hit_dir.z)
+		if flat_hit.length() > .1:
+			visual_root.rotation.y = atan2(-flat_hit.x,-flat_hit.z)
+		velocity += (flat_hit if is_on_floor() else hit_dir).normalized() * impulse
 		camera_kick = 0.7
 
+func _combat_clear(enemy: Node3D) -> bool:
+	var query = PhysicsRayQueryParameters3D.create(global_position,enemy.global_position,1,[get_rid(),enemy.get_rid()])
+	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
 func _use_character_special():
+	attack_sequence += 1
 	special_cooldown = 1.8
 	var id = String(character_data.get("id", "crimson"))
 	special_pose = id
@@ -612,10 +774,24 @@ func _use_character_special():
 
 func _update_wall_ride(delta):
 	if is_on_floor() or grappling:
+		wall_climbing = false
+		wall_climb_time = 0.0
 		wall_riding = false
 		wall_ride_time = 0.0
 		return
 
+	# A fast head-on approach runs briefly upward; glancing approaches keep
+	# the existing lateral wall-run. The time budget prevents infinite climbing.
+	var approach_input = _get_camera_relative_input()
+	if wall_contact_grace > 0.0 and wall_normal_memory.length() > 0.1:
+		var incoming_speed = Vector2(pre_slide_velocity.x,pre_slide_velocity.z).length()
+		if approach_input.dot(-wall_normal_memory) > .6 and (incoming_speed > WALL_RIDE_MIN_SPEED or wall_climbing) and wall_climb_time < 1.4:
+			wall_climbing = true
+			wall_riding = true
+			wall_ride_normal = wall_normal_memory
+			wall_climb_time += delta
+			return
+	wall_climbing = false
 	var horizontal_velocity = Vector3(velocity.x, 0.0, velocity.z)
 	if wall_contact_grace > 0.0 and wall_normal_memory.length() > 0.1 and horizontal_velocity.length() >= WALL_RIDE_MIN_SPEED:
 		var approach_speed = -horizontal_velocity.normalized().dot(wall_normal_memory)
@@ -676,10 +852,16 @@ func _remember_wall_normal(delta):
 			wall_normal_memory = Vector3.ZERO
 
 func _update_movement_state():
-	if zip_pose_time > 0.0:
+	if gliding:
+		movement_state = MovementState.GLIDE
+	elif vault_pose_time > 0 and not is_on_floor():
+		movement_state = MovementState.VAULT
+	elif zip_pose_time > 0.0:
 		movement_state = MovementState.ZIP
 	elif grappling:
 		movement_state = MovementState.SWING
+	elif wall_climbing:
+		movement_state = MovementState.WALL_CLIMB
 	elif wall_riding:
 		movement_state = MovementState.WALL_RIDE
 	elif is_on_floor():
@@ -688,7 +870,7 @@ func _update_movement_state():
 		movement_state = MovementState.AIR
 
 func get_movement_state_name():
-	return ["GROUND", "AIR", "SWING", "WALL RIDE", "ZIP"][movement_state]
+	return ["GROUND", "AIR", "SWING", "WALL RIDE", "ZIP", "WALL CLIMB", "GLIDE", "VAULT"][movement_state]
 
 func _update_camera_feedback(delta):
 	if camera == null:
@@ -705,6 +887,8 @@ func _update_web_visual():
 		return
 
 	var start = global_position + Vector3(0.36, 0.75, -0.05)
+	if is_instance_valid(animation_driver):
+		start = animation_driver.get_web_origin()
 	var delta_vec = grapple_point - start
 	var length = delta_vec.length()
 	if length < 0.05:
@@ -714,7 +898,8 @@ func _update_web_visual():
 	web_line.visible = true
 	web_line.global_position = start + delta_vec * 0.5
 	web_mesh.size = Vector3(0.045, 0.045, length)
-	web_line.look_at(grapple_point, Vector3.UP)
+	var up = Vector3.FORWARD if absf(delta_vec.normalized().dot(Vector3.UP)) > 0.99 else Vector3.UP
+	web_line.look_at(grapple_point, up)
 
 func _animate_character(delta):
 	if visual_root == null:
@@ -800,6 +985,11 @@ func _animate_character(delta):
 			leg_l.x = -0.46 * fast
 			leg_r.x = -0.68 * fast
 		pose_speed = 12.0
+	elif gliding:
+		root_pose.x = -1.05
+		var steer = Input.get_axis("move_left","move_right")
+		root_pose.z = -steer*.25
+		pose_speed = 7.0
 	elif movement_state == MovementState.ZIP:
 		var zip_local = visual_root.global_transform.basis.inverse() * velocity.normalized()
 		root_pose.x = clamp(-zip_local.y * 0.65 - 0.30, -0.82, 0.40)
@@ -904,6 +1094,30 @@ func _blend_procedural_pose(delta, blend_speed, root_pose, torso_pose, arm_l, ar
 	right_leg.rotation = right_leg.rotation.lerp(leg_r, amount)
 
 func _respawn(fall_damage):
+	dodge_time = 0
+	dodge_cooldown = 0
+	attack_pose_time = 0
+	combo_window = 0
+	combo_step = 0
+	gliding = false
+	vault_pose_time = 0.0
+	landing_feedback = 0.0
+	landing_impact_speed = 0.0
+	landing_travel_speed = 0.0
+	was_on_floor = false
+	if animation_driver != null:
+		animation_driver.reset_transition_state()
+	wall_climbing = false
+	wall_climb_time = 0.0
+	release_trick_time = 0.0
+	grapple_preview = {}
+	coyote_time = 0.0
+	jump_buffer = 0.0
+	wall_normal_memory = Vector3.ZERO
+	wall_contact_grace = 0.0
+	zip_pose_time = 0.0
+	swing_release_pose_time = 0.0
+	wall_jump_pose_time = 0.0
 	grappling = false
 	wall_riding = false
 	global_position = spawn_position

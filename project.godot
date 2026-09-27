@@ -24,9 +24,9 @@ window/stretch/mode="canvas_items"
 
 [filesystem]
 
-import/blender/enabled=true
+import/blender/enabled=false
 
 [rendering]
 
-renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+anti_aliasing/quality/msaa_3d=2

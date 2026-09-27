@@ -1,7 +1,6 @@
 extends Node3D
 
-# Texture-first city pass. The building collision/blockout stays simple while
-# large facade cards sell a dense stylized skyline cheaply.
+# Procedural material facade cards keep building collision separate from visuals.
 
 const FACADE_TEXTURES = [
 	preload("res://art/facades/facade_01.svg"),
@@ -38,7 +37,7 @@ func decorate_city(city_root: Node3D) -> void:
 
 	for index in range(buildings.size()):
 		_skin_building(buildings[index], index)
-		# Keep the loading presentation responsive while the 132 facade/roof kits
+		# Keep the loading presentation responsive while the facade/roof kits
 		# are created. Collision and decoration order remain deterministic.
 		if index % 10 == 9:
 			await get_tree().process_frame
@@ -109,33 +108,25 @@ func _add_facade(
 	instance.mesh = quad
 	instance.position = pos
 	instance.rotation_degrees = rotation_deg
-	instance.material_override = _facade_material(texture, quad_size.y)
+	instance.material_override = _facade_material(texture, quad_size)
 	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_apply_building_detail_range(instance, parent)
+	instance.visibility_range_end = float(parent.get_meta("city_silhouette_range", 470.0))
 	parent.add_child(instance)
 
-func _facade_material(
-	texture: Texture2D,
-	facade_height: float
-) -> StandardMaterial3D:
-	var floor_band: int = maxi(2, roundi(facade_height / 8.0))
-	var key: String = "%s|%d" % [texture.resource_path, floor_band]
+func _facade_material(texture: Texture2D, facade_size: Vector2) -> ShaderMaterial:
+	var style: int = FACADE_TEXTURES.find(texture)
+	var bays := Vector2(maxf(2, roundf(facade_size.x / 3.4)), maxf(2, roundf(facade_size.y / 3.8)))
+	var key := "%d|%s" % [style, bays]
 	if _facade_material_cache.has(key):
-		return _facade_material_cache[key] as StandardMaterial3D
-
-	var material := StandardMaterial3D.new()
-	material.albedo_texture = texture
-	material.roughness = 0.90
-	material.metallic = 0.0
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
-	material.texture_repeat = true
-	material.uv1_scale = Vector3(
-		1.0,
-		maxf(float(floor_band) * 8.0 / 84.0, 0.22),
-		1.0
-	)
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
+		return _facade_material_cache[key]
+	var palette := [Color("#a17960"), Color("#b4aea0"), Color("#805548"), Color("#8c9895"), Color("#465961"), Color("#728c94")]
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://art/shaders/building_facade.gdshader")
+	material.set_shader_parameter("bays", bays)
+	material.set_shader_parameter("variant", float(style))
+	material.set_shader_parameter("masonry", palette[style])
+	material.set_shader_parameter("glass_color", Color("#243c49") if style < 4 else Color("#416777"))
 	_facade_material_cache[key] = material
 	return material
 
@@ -301,7 +292,7 @@ func _add_neon_sign(body: StaticBody3D, size: Vector3, index: int, accent: Color
 	var sign_texts := ["MDK3", "NIGHT RUN", "24H", "CITY LOOP", "NO BRAKES"]
 	var label := Label3D.new()
 	label.name = "BuildingSign"
-	label.text = String(sign_texts[index % sign_texts.size()])
+	label.text = String(sign_texts[(index / 5) % sign_texts.size()])
 	label.font_size = 58
 	label.outline_size = 10
 	label.pixel_size = 0.012

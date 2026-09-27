@@ -1,0 +1,13 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[CITY] 320 buildings | heights 8.0 / 34.8 / 190.0 m (min / median / max) | tiers { "medium": 136, "tall": 94, "low": 85, "landmark": 5 } | seed 6035393
+[CITY LIFE] 29742 detail instances / 418 batches; 280 pedestrians / 128 clear sidewalk loops
+ERROR: Parameter "material" is null.
+   at: material_get_instance_shader_parameters (servers/rendering/dummy/storage/material_storage.cpp:264)
+PASS: Activity starts with seven ordered gates
+PASS: Out-of-order gate does not advance the route
+PASS: Cancel restores the previous respawn location
+PASS: Ordered gate completion produces a result
+PASS: Best result persists and loads from disk
+PASS: Completing the activity restores the previous respawn
+SKYLINE_ACTIVITY_RESULT: 0 failures

@@ -16,11 +16,11 @@ const TITLE_LOGO = preload("res://art/ui/spider_city_logo.svg")
 # Traversal city dimensions and road hierarchy. The original mission core is
 # kept around the origin; deterministic outer districts extend the playable
 # skyline without changing any movement code.
-const CITY_HALF_EXTENT = 270.0
-const CITY_ROADS_X = [-188.0, -116.0, -45.0, 0.0, 45.0, 112.0, 184.0]
-const CITY_ROADS_Z = [-184.0, -108.0, -45.0, 0.0, 45.0, 116.0, 190.0]
+const CITY_HALF_EXTENT = 450.0
+const CITY_ROADS_X = [-370.0, -285.0, -188.0, -116.0, -45.0, 0.0, 45.0, 112.0, 184.0, 282.0, 370.0]
+const CITY_ROADS_Z = [-365.0, -280.0, -184.0, -108.0, -45.0, 0.0, 45.0, 116.0, 190.0, 280.0, 365.0]
 # Total collidable building volumes, including the legacy StartTower.
-const CITY_BUILDING_TARGET = 132
+const CITY_BUILDING_TARGET = 320
 const CITY_LAYOUT_SEED = 0x5C17C1
 const CITY_EDGE_MARGIN = 10.0
 const CITY_BLOCK_SIDEWALK = 2.6
@@ -70,6 +70,9 @@ var result_overlay = null
 
 var final_beacon_position = Vector3(62.0, 51.5, 66.0)
 
+var skyline_challenge: Node3D
+var patrol: Node3D
+
 func _ready():
     game_state = "loading"
     _setup_input()
@@ -82,6 +85,10 @@ func _ready():
     await _build_ground_and_city()
     _set_loading_progress(0.72, "SKINNING CITY FACADES")
     await _build_world_decorator()
+    _set_loading_progress(0.77, "OPENING SHOPS AND SIDEWALKS")
+    var city_life = preload("res://systems/city_life.gd").new()
+    add_child(city_life)
+    await city_life.setup(self)
     _set_loading_progress(0.82, "SPAWNING RUNNER")
     _build_player()
     await get_tree().process_frame
@@ -126,6 +133,12 @@ func _build_graffiti():
 
 func _process(delta):
     if game_state == "menu":
+        if Input.is_action_just_pressed("interact"):
+            _start_free_roam()
+            return
+        if Input.is_action_just_pressed("flow_block"):
+            get_tree().change_scene_to_file("res://scenes/traversal_block.tscn")
+            return
         if Input.is_action_just_pressed("audio_settings"):
             _toggle_audio_settings()
         if audio_overlay != null and audio_overlay.visible:
@@ -166,6 +179,7 @@ func _process(delta):
     _update_hud()
 
 func _setup_input():
+    _bind_key("flow_block", KEY_T)
     _bind_key("move_forward", KEY_W)
     _bind_key("move_back", KEY_S)
     _bind_key("move_left", KEY_A)
@@ -178,8 +192,7 @@ func _setup_input():
     _bind_key("start_game", KEY_ENTER)
     _bind_key("audio_settings", KEY_O)
     _bind_key("close_menu", KEY_ESCAPE)
-    _bind_mouse("attack", MOUSE_BUTTON_LEFT)
-    _bind_mouse("special_attack", MOUSE_BUTTON_RIGHT)
+    preload("res://input_bindings.gd").setup()
 
 func _bind_key(action_name, key_code):
     if not InputMap.has_action(action_name):
@@ -201,20 +214,26 @@ func _build_environment():
     var world_env = WorldEnvironment.new()
     var env = Environment.new()
     env.background_mode = Environment.BG_SKY
-    env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-    env.ambient_light_energy = 1.15
+    env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+    env.ambient_light_color = Color("#a4b5c6")
+    env.ambient_light_energy = 0.34
     env.tonemap_mode = Environment.TONE_MAPPER_ACES
     env.glow_enabled = true
-    env.glow_intensity = 0.10
+    env.glow_intensity = 0.25
+    env.ssao_enabled = true
+    env.ssao_radius = 1.8
+    env.ssao_intensity = 1.5
+    env.tonemap_exposure = 1.0
     env.fog_enabled = true
-    env.fog_density = 0.0020
-    env.fog_aerial_perspective = 0.28
-    env.fog_light_color = Color("#b8d9ff")
+    env.fog_density = 0.00015
+    env.fog_sky_affect = 0.15
+    env.fog_aerial_perspective = 0.10
+    env.fog_light_color = Color("#b1bbc6")
 
     var sky = Sky.new()
     var sky_mat = ProceduralSkyMaterial.new()
-    sky_mat.sky_top_color = Color("#4c8ee8")
-    sky_mat.sky_horizon_color = Color("#a5d8ff")
+    sky_mat.sky_top_color = Color("#50758e")
+    sky_mat.sky_horizon_color = Color("#c8c4b5")
     sky_mat.ground_bottom_color = Color("#172233")
     sky_mat.ground_horizon_color = Color("#415d79")
     sky.sky_material = sky_mat
@@ -224,14 +243,17 @@ func _build_environment():
     add_child(world_env)
 
     var sun = DirectionalLight3D.new()
-    sun.rotation_degrees = Vector3(-48.0, -34.0, 0.0)
-    sun.light_energy = 1.55
+    sun.rotation_degrees = Vector3(-32.0, -34.0, 0.0)
+    sun.light_energy = 1.25
+    sun.light_color = Color("#ffe0af")
+    sun.directional_shadow_max_distance = 220.0
+    sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
     sun.shadow_enabled = true
     add_child(sun)
 
     var fill = DirectionalLight3D.new()
     fill.rotation_degrees = Vector3(-18.0, 142.0, 0.0)
-    fill.light_energy = 0.22
+    fill.light_energy = 0.08
     fill.light_color = Color("#83a9ff")
     add_child(fill)
 
@@ -1020,7 +1042,7 @@ func _build_ui():
 
     var hud_panel = ColorRect.new()
     hud_panel.position = Vector2(18,18)
-    hud_panel.size = Vector2(520,164)
+    hud_panel.size = Vector2(565,184)
     hud_panel.color = Color(0.025,0.035,0.065,0.82)
     ui.add_child(hud_panel)
 
@@ -1051,9 +1073,9 @@ func _build_ui():
     ui.add_child(movement_label)
 
     message_label = Label.new()
-    message_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-    message_label.position = Vector2(-365,24)
-    message_label.size = Vector2(730,70)
+    message_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+    message_label.position = Vector2(-460,-82)
+    message_label.size = Vector2(920,70)
     message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     message_label.add_theme_font_size_override("font_size",18)
     ui.add_child(message_label)
@@ -1085,7 +1107,7 @@ func _build_ui():
     subtitle.position = Vector2(-420,45)
     subtitle.size = Vector2(840,230)
     subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    subtitle.text = "PS2 / urban traversal prototype v0.1\n\nWeb swing • graffiti • multiplayer foundation • character roster\n\nPRESS ENTER FOR CHARACTER SELECT\n\nO = AUDIO SETTINGS"
+    subtitle.text = "PS2 / urban traversal prototype v0.1\n\nWeb swing • graffiti • multiplayer foundation • character roster\n\nENTER = MISSIONS  /  F = EXPLORE CITY\n\nT = FLOW BLOCK  /  O = AUDIO SETTINGS"
     subtitle.add_theme_font_size_override("font_size",20)
     title_overlay.add_child(subtitle)
 
@@ -1201,6 +1223,21 @@ func _start_game():
     player.heal_full()
     _start_collect_mission()
 
+func _start_free_roam():
+    _start_game()
+    _clear_mission_nodes()
+    mission = 0
+    if not is_instance_valid(skyline_challenge):
+        skyline_challenge = preload("res://systems/skyline_challenge.gd").new()
+        add_child(skyline_challenge)
+        skyline_challenge.setup(self)
+    if not is_instance_valid(patrol):
+        patrol = preload("res://systems/patrol_encounter.gd").new()
+        add_child(patrol)
+        patrol.setup(self)
+    message_label.text = "C patrol · J/K attack · Alt evade\nE glide · Ctrl dive · H skyline route"
+    _update_hud()
+
 func _clear_mission_nodes():
     for node in get_tree().get_nodes_in_group("mission_nodes"):
         if node != null and is_instance_valid(node):
@@ -1287,7 +1324,7 @@ func _start_combat_mission():
         add_child(drone)
         drone.set_target(player)
         drone.defeated.connect(_on_drone_defeated)
-    message_label.text = "MISSION 3 — hostile drones! Use LMB combos and your RMB special."
+    message_label.text = "MISSION 3 — hostile drones! J = combo / K = special. F2 changes mouse controls."
     _update_hud()
 
 func _on_drone_defeated(_drone):
@@ -1377,11 +1414,17 @@ func _on_player_died():
 func _update_hud():
     if game_state != "playing":
         return
-    mission_label.text = "MISSION %d / 4" % mission
+    mission_label.text = "FREE ROAM / SPIDER CITY" if mission == 0 else "MISSION %d / 4" % mission
     health_label.text = "Health: %d   |   Deaths: %d   |   Run: %.1fs" % [player.health, deaths, run_time]
-    movement_label.text = "MOVEMENT: %s" % player.get_movement_state_name()
+    movement_label.text = "MOVEMENT: %s  |  F2 controls\n%s" % [player.get_movement_state_name(), preload("res://input_bindings.gd").hint()]
 
-    if mission == 1:
+    if mission == 0:
+        counter_label.text = "MDK3 ↔ JERKOVIĆ / 900m CITY"
+        timer_label.text = skyline_challenge.status if is_instance_valid(skyline_challenge) else "Find your own line across the skyline"
+        if is_instance_valid(patrol) and not patrol.status.is_empty():
+            counter_label.text = "CITY PATROL / %d XP · %d victories" % [patrol.xp,patrol.victories]
+            timer_label.text = patrol.status
+    elif mission == 1:
         counter_label.text = "Data shards: %d / %d" % [mission_count, mission_total]
         timer_label.text = "No time limit"
     elif mission == 2:
@@ -1389,7 +1432,7 @@ func _update_hud():
         timer_label.text = "Time left: %.1fs" % max(0.0, mission_timer)
     elif mission == 3:
         counter_label.text = "Drones defeated: %d / %d" % [mission_count, mission_total]
-        timer_label.text = "LMB = combo   |   RMB = special"
+        timer_label.text = preload("res://input_bindings.gd").hint()
     elif mission == 4:
         counter_label.text = "Reach the final beacon"
         timer_label.text = "Time left: %.1fs" % max(0.0, mission_timer)
@@ -1450,6 +1493,12 @@ func _add_visual_box(
     mesh.size = size
     instance.mesh = mesh
     instance.material_override = _make_material(color, glow)
+    if str(node_name).begins_with("RoadX_") or str(node_name).begins_with("RoadZ_"):
+        if not material_cache.has("asphalt"):
+            var asphalt = ShaderMaterial.new()
+            asphalt.shader = preload("res://art/shaders/asphalt.gdshader")
+            material_cache["asphalt"] = asphalt
+        instance.material_override = material_cache["asphalt"]
     var target_parent: Node3D = parent if parent != null else self
     target_parent.add_child(instance)
     return instance

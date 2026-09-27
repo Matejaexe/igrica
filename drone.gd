@@ -3,6 +3,11 @@ extends CharacterBody3D
 signal defeated(drone)
 
 var target = null
+var windup = 0.0
+var stagger = 0.0
+var defeated_once = false
+var health_label: Label3D
+var eye_material: StandardMaterial3D
 var health = 2
 var attack_cooldown = 0.0
 var bob_time = 0.0
@@ -22,43 +27,55 @@ func set_target(player):
     target = player
 
 func _physics_process(delta):
-    attack_cooldown = max(0.0, attack_cooldown - delta)
+    attack_cooldown = maxf(0,attack_cooldown-delta)
+    stagger = maxf(0,stagger-delta)
     bob_time += delta
-
-    if target == null or not is_instance_valid(target):
-        velocity = velocity.move_toward(Vector3.ZERO, ACCEL * delta)
-        move_and_slide()
+    if defeated_once or not is_instance_valid(target) or not target.active:
         return
-
-    var delta_to_target = target.global_position - global_position
-    var flat = Vector3(delta_to_target.x, 0.0, delta_to_target.z)
-    var distance = flat.length()
-
-    var desired = Vector3.ZERO
-    if distance > 2.8:
-        desired = flat.normalized() * SPEED
-
-    velocity.x = move_toward(velocity.x, desired.x, ACCEL * delta)
-    velocity.z = move_toward(velocity.z, desired.z, ACCEL * delta)
-
-    var desired_y = target.global_position.y + 1.8 + sin(bob_time * 2.2) * 0.7
-    velocity.y = clamp((desired_y - global_position.y) * 2.0, -4.0, 4.0)
-
-    if flat.length() > 0.2:
-        look_at(global_position + flat, Vector3.UP)
-
+    var offset = target.global_position-global_position
+    var flat = Vector3(offset.x,0,offset.z)
+    var distance = offset.length()
+    var desired = flat.normalized()*SPEED if flat.length() > 2.0 else Vector3.ZERO
+    if stagger > 0:
+        windup = 0
+        velocity = velocity.move_toward(Vector3.ZERO,delta*8)
+    elif windup > 0:
+        velocity = velocity.move_toward(Vector3.ZERO,delta*30)
+        windup = maxf(0,windup-delta)
+        if windup == 0:
+            attack_cooldown = 1.3
+            if distance < 3.2 and _clear_to_target():
+                target.take_damage(15,global_position)
+    else:
+        velocity.x = move_toward(velocity.x,desired.x,ACCEL*delta)
+        velocity.z = move_toward(velocity.z,desired.z,ACCEL*delta)
+        var desired_y = target.global_position.y+.65+sin(bob_time*2.2)*.2
+        velocity.y = clampf((desired_y-global_position.y)*2,-4,4)
+        if distance < 3.0 and attack_cooldown <= 0 and _clear_to_target():
+            windup = .65
+    if flat.length() > .2: look_at(global_position+flat,Vector3.UP)
     move_and_slide()
+    eye_material.albedo_color = Color("ffd85a") if windup > 0 else Color("ff3e55")
+    eye_material.emission = eye_material.albedo_color
+    var eye = get_node("Eye")
+    eye.scale = Vector3(1.3,.8,.45)*(1.0+(.4+sin(bob_time*30)*.15 if windup > 0 else 0))
+    health_label.text = "! EVADE !" if windup > 0 else ("STUN" if stagger > 0 else "■".repeat(maxi(0,health)))
+    health_label.modulate = Color("ffe16b") if windup > 0 else Color("d7edf2")
 
-    if global_position.distance_to(target.global_position) < 2.1 and attack_cooldown <= 0.0:
-        attack_cooldown = 1.0
-        if target.has_method("take_damage"):
-            target.take_damage(15, global_position)
+func _clear_to_target() -> bool:
+    if not is_instance_valid(target): return false
+    var ray = PhysicsRayQueryParameters3D.create(global_position,target.global_position,1,[get_rid(),target.get_rid()])
+    return get_world_3d().direct_space_state.intersect_ray(ray).is_empty()
 
 func hit(amount, hit_direction):
+    if defeated_once: return
     health -= amount
-    velocity += hit_direction.normalized() * 9.0 + Vector3.UP * 4.0
-    _flash()
+    stagger = .35
+    windup = 0
+    velocity += hit_direction.normalized()*9+Vector3.UP*2
     if health <= 0:
+        defeated_once = true
+        remove_from_group("enemies")
         defeated.emit(self)
         queue_free()
 
@@ -72,6 +89,7 @@ func _build_drone():
     var dark = _material(Color("#1c2334"), false)
     var metal = _material(Color("#4f6179"), false)
     var red = _material(Color("#ff3e55"), true)
+    eye_material = red
 
     var body = MeshInstance3D.new()
     body.name = "Body"
@@ -117,6 +135,13 @@ func _build_drone():
     eye.scale = Vector3(1.3, 0.8, 0.45)
     eye.material_override = red
     add_child(eye)
+    health_label = Label3D.new()
+    health_label.position.y = 1.3
+    health_label.font_size = 32
+    health_label.pixel_size = .013
+    health_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+    health_label.no_depth_test = false
+    add_child(health_label)
 
 func _flash():
     var eye = get_node_or_null("Eye")

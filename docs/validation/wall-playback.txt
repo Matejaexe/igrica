@@ -1,0 +1,4 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+WALL_PLAYBACK: entered=true gained_height=5.66402888298035 breached_wall=false exhausted=true
+WALL_PLAYBACK_RESULT: PASS

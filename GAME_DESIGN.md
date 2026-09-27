@@ -12,6 +12,8 @@ This document is the source of truth for future development. When implementation
 
 ## Player Controls
 
+**2026-09-24 user-brief amendment:** the default mouse preset is now LMB web / RMB zip, with J/K combat. Shift/Q remain available. F2 switches back to the original mouse-combat preset below. Both presets share movement physics.
+
 - WASD: fast default movement. There is no sprint button.
 - Characters always move at a fast run/jog by default.
 - Shift: web swing / web pump.
@@ -193,3 +195,7 @@ Long-term goal:
 - Prefer data-driven character stats and configuration.
 - Godot target is 4.7.x.
 - Multiplayer must be considered in the architecture even before full networking is implemented.
+
+## Skyline traversal extension (2026-09-27)
+
+E toggles glide while airborne with enough momentum; Ctrl dives while gliding. A successful web/zip attach interrupts glide. Space keeps the regular jump and chooses a vault pose when approaching a low obstacle. H starts/cancels the Skyline Flight activity from free roam. All additions retain existing mouse presets and movement controls.

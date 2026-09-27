@@ -240,3 +240,13 @@ func _save_audio_settings():
     cfg.set_value("audio", "music", get_volume("Music"))
     cfg.set_value("audio", "sfx", get_volume("SFX"))
     cfg.save("user://audio_settings.cfg")
+
+# Explicitly release playback when changing scenes; otherwise a queued audio
+# mix can retain the old WAV through a fast reload or shutdown.
+func _exit_tree():
+    for voice in music_players:
+        if is_instance_valid(voice):
+            voice.stop()
+            voice.stream = null
+    music_players.clear()
+    current_track = {}

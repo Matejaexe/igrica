@@ -1,5 +1,15 @@
 # Spider City / v0.1 Foundation
 
+## September 25 city and traversal update
+
+**F** on the title screen opens free roam: 900 × 900m city, 320 buildings, 280 walking pedestrians and batched street detail. Movement adds assisted real-surface web targeting, swing hand IK, release tricks and short upward wall runs. See [results and known limits](docs/DEVELOPMENT_V2.md). Linux launch: `./run-linux.sh`.
+
+## September 24 traversal slice
+
+Open `project.godot` with Godot **4.7.2**, then run. Press **T** on the title screen for the compact Flow Block; **Tab** returns to the main city. **LMB/RMB = web/zip**, **J/K = combat**; **F2** switches to the original mouse-combat layout below. Shift/Q still work. **R** restarts the practice block.
+
+Portable GLB import needs no Blender installation. The original Blender source is preserved. See [development results, tests, tasks and asset audit](docs/DEVELOPMENT_HANDOFF.md).
+
 Early Godot 4 prototype for the stylized PS2/Bomb-Rush-inspired co-op traversal game.
 
 ## New v0.1 foundation
@@ -57,3 +67,19 @@ The game exposes persistent sliders for:
 - SFX
 
 Audio values are saved to `user://audio_settings.cfg`.
+
+### Graphics pass
+
+Default rendering now uses Forward+ with 4x MSAA, ambient occlusion, warm sunlight, procedural masonry/glass and raised facade trims. See [graphics validation](docs/GRAPHICS_PASS.md). For older GPUs, start `./run-linux.sh --rendering-method gl_compatibility`.
+
+### Civilians and character animation
+
+See [the character motion pass](docs/CHARACTER_MOTION_PASS.md) for the new crowd presentation, athletic run cycle, animation transitions, validation and remaining limitations.
+
+### Movement transitions
+
+The controlled character now has 24 runtime animation states. [SM2 reference and transition pass](docs/SM2_MOTION_REFERENCE.md) records the eight new actions, 58 passing checks, rendered demonstration and remaining scope.
+
+### Skyline Flight — playable update
+
+Press **F** at the menu, then **H** for the seven-gate rooftop flight route. **E** toggles glide, **Ctrl** dives, and **LMB/RMB** reconnect web/zip. **Space** uses a contextual vault pose at low obstacles. [Build notes and validation](docs/SKYLINE_FLIGHT_BUILD.md); [actual gameplay recording](docs/validation/skyline-flight-gameplay.mp4).

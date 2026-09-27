@@ -1,11 +1,8 @@
 extends RefCounted
 
-# The gameplay visual now comes directly from the Blender source that contains
-# SpideyCleanRig + the authored Run_FromReference_01 Action.
-const MODEL_PATH: String = (
-    "res://assets/characters/spidey/blender/"
-    + "spidey_run_from_reference_v1.blend"
-)
+# Portable export of the unchanged Blender source, with authored run and
+# prototype traversal clips. Rebuild with tools/build_traversal_clips.py.
+const MODEL_PATH: String = "res://assets/characters/spidey/spidey_traversal.glb"
 const ANIMATION_DRIVER_SCRIPT: Script = preload(
     "res://spidey_blender_animation_driver.gd"
 )
@@ -81,8 +78,11 @@ static func build(parent: Node3D, data: Dictionary) -> Dictionary:
         driver.call(
             "setup",
             animation_player,
-            parent.get_parent()
+            parent.get_parent(),
+            skeleton
         )
+
+        refs["driver"] = driver
 
     refs["model"] = model
     refs["skeleton"] = skeleton
@@ -123,9 +123,7 @@ static func build_preview(parent: Node3D, data: Dictionary) -> Dictionary:
         _tint_for_character(character_id)
     )
 
-    # The old preview script targets the previous skeleton names. Until a
-    # dedicated Blender idle exists, a slower in-place run is a safe preview
-    # and avoids showing the new rig in a T-pose.
+    # Preview uses the same authored run as gameplay.
     _start_preview_animation(animation_player)
 
     return {
@@ -142,8 +140,7 @@ static func _load_model_scene() -> PackedScene:
         push_error(
             "[SPIDEY BLENDER] Could not load "
             + MODEL_PATH
-            + ". Make sure Godot's Blender importer is enabled and Blender "
-            + "is configured in Editor Settings."
+            + ". Reimport the portable GLB or rebuild it with tools/build_traversal_clips.py."
         )
     return packed_scene
 
