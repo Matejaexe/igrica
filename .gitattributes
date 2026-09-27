@@ -1,0 +1,2 @@
+# Preserve upstream Godot MCP files verbatim, including blank final lines.
+addons/godot_mcp/** whitespace=-blank-at-eof

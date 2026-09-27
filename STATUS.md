@@ -9,7 +9,7 @@
 - Satellite 4.1.11 izgrađen i proveren u odvojenoj kopiji: freeze/step, F, kretanje, patrola i screenshot. Codex zapis postoji, podrazumevano isključen. Blender zapis očuvan.
 
 ## Sačuvano
-- GitHub grana `codex/spider-city-patrol-mcp-20260927`. Main nije menjan. Checkpointi: `13e632d` (sve prethodne izmene), `583e2ec` (dovršena patrola); završni MCP checkpoint je vrh iste grane.
+- GitHub grana `codex/spider-city-patrol-mcp-20260927`. Main nije menjan. Checkpointi: `13e632d` (sve prethodne izmene), `583e2ec` (dovršena patrola); `d57388a` (MCP integracija); vrh iste grane sadrži i završnu dokumentaciju.
 - Pre nastavka kompletan ZIP: `../backups/SpiderCity-before-resume-20260927-174441.zip`, 624 fajla, provereni CRC i svaki SHA-256. Uključeni untracked fajlovi, Git i Godot cache.
 - Najnoviji završni ZIP naveden je u `../backups/LATEST.txt`, sa `.sha256` i manifestom unutar ZIP-a. Ponovljivo: `python tools/snapshot_project.py --output-dir ../backups --label checkpoint`.
 - Privatni backup Codex konfiguracije ostaje u `~/.codex/`; putanja i lokalne komande su u `docs/GODOT_MCP_SETUP.md`.
