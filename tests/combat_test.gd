@@ -82,16 +82,38 @@ func run():
         await process_frame
     print("COMBO_SEQUENCE: ",combo)
     check(combo == [1,2,3,1],"Combo cycles left/right/finisher and restarts")
+    drone.position = p.position + Vector3(0,.65,-2)
+    enemy_health = drone.health
+    p.combo_window = 0
+    p._begin_normal_attack()
+    p._advance_normal_attack(.10)
+    check(drone.health == enemy_health,"Normal attack windup does not deal damage early")
+    p._advance_normal_attack(.04)
+    check(drone.health == enemy_health-1,"Normal attack deals damage at the authored contact time")
+    enemy_health = drone.health
+    p._advance_normal_attack(1)
+    check(drone.health == enemy_health,"Contact can only deal damage once")
+    p._begin_normal_attack()
+    drone.position = p.position + Vector3(0,0,-20)
+    p._advance_normal_attack(.3)
+    check(drone.health == enemy_health,"Target leaving range during windup is not hit")
+    drone.position = p.position + Vector3(0,.65,-2)
+    p._begin_normal_attack()
+    p.dodge_cooldown = 0
+    p._begin_dodge(Vector3.RIGHT)
+    p._advance_normal_attack(.3)
+    check(drone.health == enemy_health and p.pending_attack_time < 0,"Dodge cancels pending attack contact")
+    p.dodge_time = 0
     var d = p.animation_driver
     p.combo_step = 2
     p.attack_pose_time = .2
     d._process(.016)
     check(d.current_state == "PunchLeft","Second combo strike selects its own animation")
-    d.animation_player.advance(.12)
+    d.advance_animation(.12)
     p.attack_sequence += 1
     d._process(.016)
-    d.animation_player.advance(0)
-    check(d.animation_player.current_animation_position < .02,"Repeated attacks restart their animation")
+    d.advance_animation(0)
+    check(d.get_play_position() < .02,"Repeated attacks restart their animation")
     drone.hit(100,Vector3.BACK)
     var final_health = drone.health
     drone.hit(100,Vector3.BACK)

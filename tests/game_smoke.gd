@@ -42,7 +42,7 @@ func run():
         main._refresh_character_select()
         main.player.set_character(index)
         await process_frame
-        check(main.player.animation_driver.clips.size() == 30, "Character %d loads all traversal states" % index)
+        check(main.player.animation_driver.clips.size() == 31, "Character %d loads all traversal states" % index)
     main._start_free_roam()
     check(main.mission == 0 and main.game_state == "playing", "Free roam opens without timed objectives")
     main._lock_character_and_start()

@@ -39,7 +39,7 @@ func run():
     p.grapple_point = p.position + Vector3(12,20,-20)
     var driver = p.animation_driver
     driver._play_state("SwingRight",1)
-    driver.animation_player.advance(.2)
+    driver.advance_animation(.2)
     var modifier = driver.swing_modifier
     modifier.set_active(false)
     var skeleton = driver.skeleton

@@ -43,11 +43,11 @@ func run():
     var driver = main.player.animation_driver
     driver.set_process(false)
     driver._play_state("Walk",1.0)
-    driver.animation_player.advance(0)
-    driver.animation_player.seek(driver.animation_player.current_animation_length*.37,true)
+    driver.advance_animation(0)
+    driver.advance_animation(driver.animation_player.get_animation(driver.clips["Walk"]).length*.37)
     driver._play_state("Run",1.0)
-    driver.animation_player.advance(0)
-    var phase = driver.animation_player.current_animation_position/driver.animation_player.current_animation_length
+    driver.advance_animation(0)
+    var phase = driver.get_play_position()/driver.animation_player.get_animation(driver.clips["Run"]).length
     check(absf(phase-.37)<.02,"Walk to run preserves normalized stride phase")
     main.queue_free()
     await process_frame

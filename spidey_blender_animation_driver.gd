@@ -1,9 +1,14 @@
 extends Node
 
-# AnimationPlayer owns every bone. Gameplay owns physics and visual-root lean.
+# AnimationTree owns base bone poses. The swing modifier runs after blending.
+# AnimationPlayer stores imported clips only; gameplay owns physical movement.
 # Portable GLB preserves the source run and adds original traversal state clips.
 const RUN_ANIMATION_BASENAME = "RunFlow"
 var animation_player: AnimationPlayer
+var animation_tree: AnimationTree
+var playback: AnimationNodeStateMachinePlayback
+var playback_rate = 1.0
+var restart_requested = false
 var player: CharacterBody3D
 var skeleton: Skeleton3D
 var current_state = ""
@@ -54,7 +59,7 @@ func setup(target_animation_player: AnimationPlayer, target_player: Node, target
     if animation_player == null or player == null:
         set_process(false)
         return
-    for state in ["Idle", "Walk", "Run", "Jump", "Fall", "Land", "SwingLeft", "SwingRight", "Zip", "WallRun", "SwingTuckLeft", "SwingTuckRight", "Release", "Dive", "Punch", "WallClimb", "Glide"] + EXTRA_STATES:
+    for state in ["Idle", "Walk", "Run", "Sprint", "Jump", "Fall", "Land", "SwingLeft", "SwingRight", "Zip", "WallRun", "SwingTuckLeft", "SwingTuckRight", "Release", "Dive", "Punch", "WallClimb", "Glide"] + EXTRA_STATES:
         var wanted = RUN_ANIMATION_BASENAME if state == "Run" else state
         for clip in animation_player.get_animation_list():
             if clip == wanted or clip.ends_with("/" + wanted):
@@ -64,12 +69,14 @@ func setup(target_animation_player: AnimationPlayer, target_player: Node, target
                 break
         if not clips.has(state):
             push_error("Missing traversal animation: " + state)
+    _build_animation_tree()
     if skeleton != null:
         swing_modifier = preload("res://systems/swing_pose_modifier.gd").new()
         swing_modifier.player = player
         skeleton.add_child(swing_modifier)
     trick_pivot = get_parent().get_node_or_null("BlenderTraversalPivot")
     _play_state("Idle", 1.0)
+    advance_animation(0.0)
 
 func _process(delta: float) -> void:
     if player == null or animation_player == null:
@@ -83,8 +90,7 @@ func _process(delta: float) -> void:
     elif float(player.get("attack_pose_time")) > 0:
         state = "Finisher" if player.combo_step == 3 else ("PunchLeft" if player.combo_step == 2 else "Punch")
         if seen_attack_sequence != player.attack_sequence:
-            animation_player.stop(true)
-            current_state = ""
+            restart_requested = true
             seen_attack_sequence = player.attack_sequence
     elif player.get("grappling"):
         var tuck = player.velocity.y > 3.0 or (absf(player.velocity.y) < 4 and speed > 22)
@@ -113,9 +119,11 @@ func _process(delta: float) -> void:
     elif speed > (0.45 if run_active else 0.9):
         # Hysteresis prevents clip flapping near the walk/run boundary.
         state = "Walk" if speed < (4.5 if current_state == "Run" else 5.5) else "Run"
-        rate = clampf(speed / (4.0 if state == "Walk" else 17.0), 0.5, 1.6)
-    run_active = state == "Run"
+        if speed > (20.0 if current_state == "Sprint" else 22.0): state = "Sprint"
+        rate = clampf(speed / (4.0 if state == "Walk" else (25.0 if state == "Sprint" else 17.0)), 0.5, 1.6)
+    run_active = state in ["Run", "Sprint"]
     _play_state(state, rate, delta)
+    advance_animation(delta)
     if trick_pivot != null:
         var remaining: float = player.release_trick_time
         if remaining > 0:
@@ -126,22 +134,75 @@ func _process(delta: float) -> void:
         else:
             trick_pivot.rotation.z = lerp_angle(trick_pivot.rotation.z,0.0,1.0-exp(-18.0*delta))
 
+func _build_animation_tree():
+    animation_player.stop()
+    animation_player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
+    var machine = AnimationNodeStateMachine.new()
+    for state in clips:
+        var node = AnimationNodeAnimation.new()
+        node.animation = clips[state]
+        node.advance_on_start = true
+        if state in ["Walk", "Run", "Sprint"]:
+            node.use_custom_timeline = true
+            node.timeline_length = 1.0
+            node.stretch_time_scale = true
+            node.loop_mode = Animation.LOOP_LINEAR
+        machine.add_node(state, node)
+    # Every gameplay interruption has a direct edge, so travel never inserts
+    # an unrelated action on its way to the requested state.
+    for from in clips:
+        for to in clips:
+            if from == to: continue
+            var transition = AnimationNodeStateMachineTransition.new()
+            transition.xfade_time = .20 if to in ["Idle", "Walk", "Run", "Sprint"] else .12
+            if to in ["Land", "LandRun", "HardLand"]: transition.xfade_time = .07
+            if to in ["Punch", "PunchLeft", "Finisher", "DodgeLeft", "DodgeRight"]: transition.xfade_time = .045
+            if from in ["Walk", "Run", "Sprint"] and to in ["Walk", "Run", "Sprint"]:
+                transition.switch_mode = AnimationNodeStateMachineTransition.SWITCH_MODE_SYNC
+                transition.reset = false
+            machine.add_transition(from, to, transition)
+    var graph = AnimationNodeBlendTree.new()
+    graph.add_node("States", machine)
+    graph.add_node("Rate", AnimationNodeTimeScale.new())
+    graph.connect_node("Rate", 0, "States")
+    graph.connect_node("output", 0, "Rate")
+    animation_tree = AnimationTree.new()
+    animation_tree.name = "CharacterAnimationTree"
+    animation_tree.tree_root = graph
+    add_child(animation_tree)
+    animation_tree.anim_player = animation_tree.get_path_to(animation_player)
+    animation_tree.root_node = animation_tree.get_path_to(animation_player.get_node(animation_player.root_node))
+    animation_tree.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
+    animation_tree.active = true
+    playback = animation_tree.get("parameters/States/playback")
+
 func _play_state(state: String, rate: float, delta: float = 1.0) -> void:
-    if not clips.has(state):
-        return
-    if state != current_state:
-        var locomotion_transition = current_state in ["Walk", "Run"] and state in ["Walk", "Run"]
-        var phase = 0.0
-        if locomotion_transition and animation_player.current_animation_length > 0:
-            phase = fposmod(animation_player.current_animation_position / animation_player.current_animation_length, 1.0)
-        var blend = .20 if state in ["Idle", "Walk", "Run"] else .12
-        if state in ["Land", "LandRun", "HardLand"]:
-            blend = .07
-        animation_player.play(clips[state], blend)
-        if locomotion_transition:
-            animation_player.seek(phase * animation_player.get_animation(clips[state]).length, false)
-        current_state = state
-    animation_player.speed_scale = move_toward(animation_player.speed_scale, rate, 7.5 * delta)
+    if not clips.has(state): return
+    if current_state.is_empty():
+        playback.start(state, true)
+    elif restart_requested and state == current_state:
+        playback.start(state, true)
+    elif state != current_state:
+        playback.travel(state)
+        playback.next()
+    restart_requested = false
+    current_state = state
+    # One-shot contact timing is authored in seconds. Locomotion alone scales
+    # to measured speed; animations never apply root motion to the controller.
+    playback_rate = move_toward(playback_rate,rate,7.5*delta) if state in ["Walk","Run","Sprint","WallRun"] else 1.0
+    var clock_scale = playback_rate
+    if state in ["Walk", "Run", "Sprint"]:
+        clock_scale /= animation_player.get_animation(clips[state]).length
+    animation_tree.set("parameters/Rate/scale",clock_scale)
+
+func advance_animation(delta: float):
+    animation_tree.advance(delta)
+
+func get_play_position() -> float:
+    var position = playback.get_current_play_position()
+    if current_state in ["Walk", "Run", "Sprint"]:
+        position *= animation_player.get_animation(clips[current_state]).length
+    return position
 
 func get_web_origin() -> Vector3:
     if is_instance_valid(swing_modifier) and swing_modifier.hand_valid:

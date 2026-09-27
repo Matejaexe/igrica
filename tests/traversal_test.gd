@@ -53,19 +53,19 @@ func run():
             max_stretch = maxf(max_stretch, (p.grapple_point - p.global_position - Vector3.UP * .72).length() - 20)
         check(p.velocity.is_finite() and max_stretch < 0.2, "8-second pendulum stable at %d Hz (stretch %.3fm)" % [hz, max_stretch])
     var driver = p.animation_driver
-    check(driver.clips.size() == 30, "All thirty animation states resolve on imported rig")
+    check(driver.clips.size() == 31, "All thirty-one animation states resolve on imported rig")
     driver.set_process(false)
     var poses = []
     for state in ["Idle", "Jump", "Fall", "Land", "SwingLeft", "SwingRight", "WallRun"]:
         driver._play_state(state, 1.0)
-        driver.animation_player.advance(.2)
+        driver.advance_animation(.2)
         var bone = driver.skeleton.find_bone("LeftHand")
         poses.append(driver.skeleton.get_bone_global_pose(bone).origin)
     check(poses[0].distance_to(poses[4]) > .1, "Swing changes actual hand pose, not only invisible proxies")
     driver._play_state("Run", 1.0)
     for i in 1800:
-        driver.animation_player.advance(1.0 / 60)
-    check(driver.animation_player.is_playing(), "Run continues looping after 30 seconds")
+        driver.advance_animation(1.0 / 60)
+    check(driver.playback.is_playing(), "Run continues looping after 30 seconds")
     p._respawn(false)
     check(not p.grappling and p.velocity == Vector3.ZERO and p.wall_contact_grace == 0.0, "Respawn clears traversal state")
     print("TEST_RESULT: ", failures.size(), " failures")

@@ -35,7 +35,7 @@ func run():
         driver._play_state(entry[0],1.0)
         driver.animation_player.speed_scale = 1.0
         for frame in entry[1]:
-            driver.animation_player.advance(1.0/30.0)
+            driver.advance_animation(1.0/30.0)
             await process_frame
             await RenderingServer.frame_post_draw
             root.get_texture().get_image().save_png(output+"/frame-%04d.png" % index)

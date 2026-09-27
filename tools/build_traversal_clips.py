@@ -1,13 +1,23 @@
 """Run with Blender --background --factory-startup --python tools/build_traversal_clips.py.
 Derives a portable GLB from the unchanged authored Blender source; adds prototype
-traversal clips in the animation layer only. Does not write the source .blend.
+traversal clips in the animation layer only. Saves a separate editable animation .blend; never writes the source .blend.
 """
 import bpy
 import math
+import sys
+import shutil
+import time
 from pathlib import Path
 from mathutils import Quaternion, Vector
 
 ROOT = Path(__file__).resolve().parents[1]
+WORKING = ROOT / 'assets/characters/spidey/blender/spidey_animation_working.blend'
+if WORKING.exists():
+    if '--rebuild-working-copy' not in sys.argv:
+        raise RuntimeError('Working .blend exists. Use export_character_animations.py to preserve artist edits, or explicitly pass -- --rebuild-working-copy to regenerate with a backup.')
+    backup_dir = ROOT.parent / 'backups'
+    backup_dir.mkdir(exist_ok=True)
+    shutil.copy2(WORKING, backup_dir / ('spidey-animation-before-rebuild-%d.blend' % time.time_ns()))
 bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'assets/characters/spidey/blender/spidey_run_from_reference_v1.blend'))
 rig = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
 scene = bpy.context.scene
@@ -32,6 +42,19 @@ def running_arm(side, sign, swing, elbow):
         basis = bone.bone.matrix_local.to_quaternion()
         bone.rotation_quaternion = basis.inverted() @ rotation @ basis
 
+def grip_hand(side, sign, amount):
+    # Curl the existing finger chains toward the palm in armature space.
+    # Names/rests/skin are unchanged; only authored rotation keys are added.
+    for finger in ('Index', 'Middle', 'Ring', 'Pinky'):
+        for joint, bend in enumerate((65, 90, 65), 1):
+            pose(side+'Hand'+finger+str(joint), sign*bend*amount, (0,1,0))
+    thumb = rig.pose.bones[side+'HandThumb1']
+    basis = thumb.bone.matrix_local.to_quaternion()
+    q = Quaternion(Vector((0,0,1)), math.radians(sign*42*amount)) @ Quaternion(Vector((0,1,0)), math.radians(sign*20*amount))
+    thumb.rotation_quaternion = basis.inverted() @ q @ basis
+    pose(side+'HandThumb2', sign*45*amount, (0,1,0))
+    pose(side+'HandThumb3', sign*30*amount, (0,1,0))
+
 def frame_pose(kind, t):
     for b in rig.pose.bones:
         b.matrix_basis.identity()
@@ -55,7 +78,7 @@ def frame_pose(kind, t):
             pose(side + 'ForeArm', -12 if active else -55)
             pose(side + 'UpLeg', (-55 if 'Tuck' in kind else -18) + sign * (10 + pulse * 6))
             pose(side + 'Leg', (90 if 'Tuck' in kind else 35) + sign * 12)
-        elif kind in ('Release', 'Dive', 'Punch'):
+        elif kind in ('Release', 'Dive'):
             pose('Spine1', 18 if kind == 'Dive' else -8)
             pose(side + 'UpLeg', -20 + sign * 12)
             pose(side + 'Leg', 45 + sign * 15)
@@ -119,21 +142,36 @@ def frame_pose(kind, t):
             pose(side+'Leg', 55+amount*25)
             running_arm(side,sign,-15-sign*lean*20,-70)
             pose('Spine1',lean*20*amount,(0,1,0))
-        elif kind in ('PunchLeft','Finisher'):
+        elif kind in ('Punch', 'PunchLeft', 'Finisher'):
+            # Authored guard -> anticipation -> contact -> follow-through -> recovery.
+            # Contact is at 40% and is shared with the gameplay timing contract.
             lead = 1 if kind == 'PunchLeft' else -1
-            strike = math.sin(math.pi*t)
-            running_arm(side,sign,-75*strike if sign==lead else -10,-15 if sign==lead else -65)
-            pose('Spine1',lead*20*strike,(0,0,1))
-            pose(side+'UpLeg',-10+sign*lead*8)
-            pose(side+'Leg',20)
-        elif kind == 'RunFlow':
+            keys = [(0, 0), (.20, -.18), (.40, 1), (.55, .82), (.82, .12), (1, 0)]
+            strike = 0
+            for (ta, va), (tb, vb) in zip(keys, keys[1:]):
+                if ta <= t <= tb:
+                    u = (t-ta)/(tb-ta)
+                    u = u*u*(3-2*u)
+                    strike = va+(vb-va)*u
+                    break
+            heavy = kind == 'Finisher'
+            active = sign == lead
+            running_arm(side, sign, (-28-52*strike) if active else -18,
+                        (-88+80*strike) if active else -95)
+            pose('Spine1', lead*(25 if heavy else 14)*strike, (0,0,1))
+            pose('Spine', 5+(10 if heavy else 4)*max(0,strike))
+            pose('Hips', -lead*7*strike, (0,0,1))
+            pose(side+'UpLeg', -12+sign*lead*9)
+            pose(side+'Leg', 24-sign*lead*10)
+            pose(side+'Foot', -8)
+        elif kind in ('RunFlow', 'Sprint'):
             stride = pulse * sign
             # Original athletic cycle: drive, supported leg, heel recovery.
-            pose(side + 'UpLeg', stride * 43 - 8)
-            pose(side + 'Leg', 18 + max(0, -stride) * 92)
+            pose(side + 'UpLeg', stride * (54 if kind == 'Sprint' else 43) - 8)
+            pose(side + 'Leg', 18 + max(0, -stride) * (108 if kind == 'Sprint' else 92))
             pose(side + 'Foot', -12 - max(0, stride) * 12)
-            running_arm(side, sign, -stride*40, -86 + stride*8)
-            pose('Spine', 8)
+            running_arm(side, sign, -stride*(48 if kind == 'Sprint' else 40), -86 + stride*8)
+            pose('Spine', 15 if kind == 'Sprint' else 8)
             pose('Spine1', pulse * 5, (0,0,1))
             pose('Hips', -pulse * 3, (0,0,1))
         elif kind in ('WallRun', 'Walk'):
@@ -146,13 +184,17 @@ def frame_pose(kind, t):
             pose('Spine1', pulse * 3, (0,0,1))
             pose('Hips', -pulse * 2, (0,0,1))
 
-for kind, seconds in [('DodgeLeft', .28), ('DodgeRight', .28), ('PunchLeft', .25), ('Finisher', .42), ('Glide', 1.2), ('Vault', .5), ('StartRun', .24), ('StopRun', .28), ('LandRun', .26), ('HardLand', .48), ('WallJumpLeft', .3), ('WallJumpRight', .3), ('AirJumpLeft', .4), ('AirJumpRight', .4), ('RunFlow', .64), ('Idle', 2), ('Walk', .9), ('Jump', .4), ('Fall', 1), ('Land', .3), ('SwingLeft', 1.2), ('SwingRight', 1.2), ('Zip', .45), ('WallRun', .6), ('SwingTuckLeft', 1.2), ('SwingTuckRight', 1.2), ('Release', .34), ('Dive', 1), ('Punch', .3), ('WallClimb', .65)]:
+    if kind in ('Punch', 'PunchLeft', 'Finisher', 'Sprint'):
+        for side, sign in [('Left',1),('Right',-1)]:
+            grip_hand(side,sign,.95 if kind != 'Sprint' else .32)
+
+for kind, seconds in [('DodgeLeft', .28), ('DodgeRight', .28), ('PunchLeft', 10/30), ('Finisher', .5), ('Sprint', .64), ('Glide', 1.2), ('Vault', .5), ('StartRun', .24), ('StopRun', .28), ('LandRun', .26), ('HardLand', .48), ('WallJumpLeft', .3), ('WallJumpRight', .3), ('AirJumpLeft', .4), ('AirJumpRight', .4), ('RunFlow', .64), ('Idle', 2), ('Walk', .9), ('Jump', .4), ('Fall', 1), ('Land', .3), ('SwingLeft', 1.2), ('SwingRight', 1.2), ('Zip', .45), ('WallRun', .6), ('SwingTuckLeft', 1.2), ('SwingTuckRight', 1.2), ('Release', .34), ('Dive', 1), ('Punch', 10/30), ('WallClimb', .65)]:
     action = bpy.data.actions.new(kind)
     rig.animation_data.action = action
     count = round(seconds * 30)
     for frame in range(count + 1):
         frame_pose(kind, frame / count)
-        if kind in ('StartRun', 'StopRun', 'LandRun', 'HardLand'):
+        if kind in ('StartRun', 'StopRun', 'LandRun', 'HardLand', 'Punch', 'PunchLeft', 'Finisher'):
             # Keep the supporting ankle at its rest height while compressing.
             bpy.context.view_layer.update()
             lowest = min(rig.pose.bones[side+'Foot'].head.z for side in ('Left','Right'))
@@ -167,6 +209,10 @@ for kind, seconds in [('DodgeLeft', .28), ('DodgeRight', .28), ('PunchLeft', .25
 rig.animation_data.action = original_action
 rig.animation_data.action_slot = original_slot
 scene.frame_set(0)
+# Keep an editable authoring file with every action, without touching the source.
+bpy.ops.file.pack_all()
+bpy.context.preferences.filepaths.save_version = 0
+bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'assets/characters/spidey/blender/spidey_animation_working.blend'), copy=True)
 # Discover exporter enum values before selecting the known GLB/actions modes.
 props = bpy.ops.export_scene.gltf.get_rna_type().properties
 # export_format uses a dynamic callback; confirmed GLB in installed exporter source.

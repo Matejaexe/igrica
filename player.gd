@@ -92,6 +92,11 @@ var health = 100
 var invuln_time = 0.0
 var attack_cooldown = 0.0
 var attack_sequence = 0
+var pending_attack_time = -1.0
+var pending_attack_damage = 0
+var pending_attack_impulse = 0.0
+const NORMAL_ATTACK_LENGTHS = [10.0/30.0, 10.0/30.0, .5]
+const NORMAL_ATTACK_CONTACT_RATIO = .4
 var dodge_time = 0.0
 var dodge_cooldown = 0.0
 var dodge_direction = Vector3.ZERO
@@ -255,6 +260,7 @@ func _physics_process(delta):
 	if Input.is_action_just_pressed("dodge"):
 		_begin_dodge(wish_dir)
 	_handle_attack_input()
+	_advance_normal_attack(delta)
 	if gliding:
 		velocity = FLIGHT.step(velocity,wish_dir,Input.is_action_pressed("dive"),delta)
 		if Vector2(velocity.x,velocity.z).length() < 5 or attack_pose_time > 0:
@@ -706,34 +712,55 @@ func _begin_dodge(direction: Vector3):
 	dodge_cooldown = .8
 	invuln_time = maxf(invuln_time,.22)
 	attack_pose_time = 0
+	pending_attack_time = -1
 
 func _handle_attack_input():
 	if dodge_time > 0: return
 	if Input.is_action_just_pressed("attack") and attack_cooldown <= 0.0:
-		combo_step = combo_step % 3 + 1 if combo_window > 0.0 else 1
-		attack_sequence += 1
-		combo_window = 0.62
-		attack_cooldown = 0.25 if combo_step < 3 else 0.42
-		attack_pose_duration = attack_cooldown
-		attack_pose_time = attack_pose_duration
-		special_pose = ""
-		var damage = max(1, int(ceil(combat_mult)))
-		if combo_step == 3 and combat_mult >= 1.0:
-			damage += 1
-		_strike_nearest(ATTACK_RANGE, damage, 2.0 + combo_step)
+		_begin_normal_attack()
 	if Input.is_action_just_pressed("special_attack") and special_cooldown <= 0.0:
 		_use_character_special()
 
-func _strike_nearest(hit_range, damage, impulse):
+func _begin_normal_attack():
+	combo_step = combo_step % 3 + 1 if combo_window > 0.0 else 1
+	attack_sequence += 1
+	combo_window = .82
+	attack_cooldown = NORMAL_ATTACK_LENGTHS[combo_step-1]
+	attack_pose_duration = attack_cooldown
+	attack_pose_time = attack_pose_duration
+	special_pose = ""
+	pending_attack_time = attack_pose_duration * NORMAL_ATTACK_CONTACT_RATIO
+	pending_attack_damage = max(1, int(ceil(combat_mult)))
+	if combo_step == 3 and combat_mult >= 1.0: pending_attack_damage += 1
+	pending_attack_impulse = 2.0+combo_step
+	var target = _nearest_combat_target(ATTACK_RANGE)
+	if target != null:
+		var direction = target.global_position-global_position
+		if Vector2(direction.x,direction.z).length() > .1:
+			visual_root.rotation.y = atan2(-direction.x,-direction.z)
+
+func _advance_normal_attack(delta: float):
+	if pending_attack_time < 0: return
+	pending_attack_time -= delta
+	if pending_attack_time <= 0:
+		pending_attack_time = -1
+		# Re-query range and occlusion at contact, not at button press. No
+		# animation track moves the physics body or directly awards damage.
+		_strike_nearest(ATTACK_RANGE,pending_attack_damage,pending_attack_impulse)
+
+func _nearest_combat_target(hit_range):
 	var best = null
 	var best_distance = hit_range
 	for enemy in get_tree().get_nodes_in_group("enemies"):
-		if enemy == null or not is_instance_valid(enemy):
-			continue
+		if not is_instance_valid(enemy): continue
 		var distance = global_position.distance_to(enemy.global_position)
 		if distance < best_distance and _combat_clear(enemy):
 			best = enemy
 			best_distance = distance
+	return best
+
+func _strike_nearest(hit_range, damage, impulse):
+	var best = _nearest_combat_target(hit_range)
 	if best != null and best.has_method("hit"):
 		var hit_dir = best.global_position - global_position
 		best.hit(damage, hit_dir)
@@ -748,6 +775,7 @@ func _combat_clear(enemy: Node3D) -> bool:
 	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
 func _use_character_special():
+	pending_attack_time = -1
 	attack_sequence += 1
 	special_cooldown = 1.8
 	var id = String(character_data.get("id", "crimson"))
@@ -1095,6 +1123,7 @@ func _blend_procedural_pose(delta, blend_speed, root_pose, torso_pose, arm_l, ar
 
 func _respawn(fall_damage):
 	dodge_time = 0
+	pending_attack_time = -1
 	dodge_cooldown = 0
 	attack_pose_time = 0
 	combo_window = 0

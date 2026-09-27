@@ -77,7 +77,21 @@ DO NOT modify, regenerate, reskin, or replace this GLB unless explicitly asked.
 
 Fix animation in the animation/retarget/IK/modifier layer.
 
-## Current donor
+## Active Blender + Godot animation pipeline (user instruction, 2026-09-27)
+
+Read `docs/HYBRID_ANIMATION_PIPELINE.md` before editing character animation.
+Blender is the authoring source; edit the existing rig/actions in
+`assets/characters/spidey/blender/spidey_animation_working.blend`.
+Preserve `spidey_run_from_reference_v1.blend`, bone names, hierarchy and rests.
+Use `tools/export_character_animations.py` for normal GLB export; do not rerun
+the procedural clip builder over artist edits. AnimationTree evaluates/blends
+in-place clips, then the swing modifier applies anchor-driven arm IK.
+The gameplay controller alone moves the character. Validate imports, rig
+compatibility, transitions and gameplay; visually inspect every changed clip
+before calling it finished. Priorities: idle/run/sprint/jump/fall/landing,
+physics-aware swing, wall-run, and basic combat.
+
+## Historical donor
 
 ```text
 res://third_party/godot_platformer/player.glb

@@ -1,26 +1,25 @@
-# Spider City — stanje 27.09.2026.
+# Spider City — poslednja kontrolna tačka, 27.09.2026.
 
-## Dovršeno
-- Nastavljen prekinuti zadatak: patrola na krovu, combo/dodge animacije i tri talasa dronova. Nije ponovo građen projekat.
-- Završena grafička provera u Steam Godotu 4.7.2: pobeda kroz input za 18.8 s, +150 XP; `docs/validation/patrol-gameplay.mp4`.
-- Ispravljen respawn pri prelasku iz patrole u misiju. Izvorni Blender i zaštićeni GLB nisu menjani.
-- Sa dodatkom prolazi 20 game smoke + 12 combat + 9 patrol provera. Prethodni traversal/flight/city testovi i rezultati sačuvani.
-- Hybrid MCP 2026.09.23 dodat glavnom projektu: editor veza, inspection, parse check i ograničen headless launch potvrđeni.
-- Satellite 4.1.11 izgrađen i proveren u odvojenoj kopiji: freeze/step, F, kretanje, patrola i screenshot. Codex zapis postoji, podrazumevano isključen. Blender zapis očuvan.
+## Dovršeno u ovom nastavku
+- Nastavljena borba/patrola uz novo korisnikovo Blender + Godot uputstvo; projekat nije ponovo građen.
+- Radni `spidey_animation_working.blend` sadrži postojeći model/rig i sve akcije. Originalni `.blend` i zaštićeni GLB ostali su neizmenjeni.
+- Normalan izvoz sada je `tools/export_character_animations.py`: čuva ručne Blender izmene, proverava skelet, izvozi GLB bez ponovnog generisanja poza. Prototype builder traži eksplicitan rebuild i pravi backup radnog fajla.
+- AnimationTree preuzeo 31 stanje i blendovanje; AnimationPlayer služi kao biblioteka. Kontroler zadržava kretanje, swing IK se primenjuje posle animacije. Hod/trčanje/sprint čuvaju fazu koraka.
+- Dorađena tri udarca (priprema/kontakt/oporavak + prsti); dodat Sprint iznad 22 m/s, bez nove kontrole. Šteta se primenjuje na 40% klipa, uz ponovnu proveru dometa/zida; dodge prekida udarac.
+- 111 provera prolazi. Pregledano 12 slika iz tri ugla i sačuvan animacioni snimak. Patrola odigrana inputom u headless (21.0 s) i grafičkom Godotu (37.6 s), +150 XP.
 
-## Sačuvano
-- GitHub grana `codex/spider-city-patrol-mcp-20260927`. Main nije menjan. Checkpointi: `13e632d` (sve prethodne izmene), `583e2ec` (dovršena patrola); `d57388a` (MCP integracija); vrh iste grane sadrži i završnu dokumentaciju.
-- Pre nastavka kompletan ZIP: `../backups/SpiderCity-before-resume-20260927-174441.zip`, 624 fajla, provereni CRC i svaki SHA-256. Uključeni untracked fajlovi, Git i Godot cache.
-- Najnoviji završni ZIP naveden je u `../backups/LATEST.txt`, sa `.sha256` i manifestom unutar ZIP-a. Ponovljivo: `python tools/snapshot_project.py --output-dir ../backups --label checkpoint`.
-- Privatni backup Codex konfiguracije ostaje u `~/.codex/`; putanja i lokalne komande su u `docs/GODOT_MCP_SETUP.md`.
+## Sačuvano / orijentiri
+- Aktivna GitHub grana: `codex/spider-city-patrol-mcp-20260927`; main ostaje neizmenjen.
+- Pre ovog koraka kompletan snapshot: `../backups/SpiderCity-patrol-mcp-final-20260927-200257.zip` (checkpoint 4cc0c10).
+- Najnoviji završni ZIP naveden u `../backups/LATEST.txt`, sa SHA-256 i manifestom. Ponovljivo: `python tools/snapshot_project.py --output-dir ../backups --label checkpoint`.
+- Novi izvor istine: `docs/HYBRID_ANIMATION_PIPELINE.md`; snimci `docs/validation/hybrid-animation-review.mp4` i `hybrid-patrol-gameplay.mp4`.
+- Hybrid MCP je glavni i instaliran u projektu. Satellite ostaje isključen i izdvojen u test-kopiji; Blender MCP konfiguracija očuvana. Lokalna uputstva: `docs/GODOT_MCP_SETUP.md`.
 
-## Sledeće (bez rekonstrukcije konteksta)
-1. Otvoriti ovaj projekat u Steam Godotu. Ponovo učitati Codex za prošireni primary katalog: runtime/input/testing/scripts. Koristiti hybrid kao glavni MCP.
-2. Nastaviti gameplay: ručno proceniti dodge/combo, popraviti kontakte i siluetu borbe, zatim povezati traversal sa patrolom kroz autorski osmišljenu rutu. Ne povećavati grad ponovo pre toga.
-3. Otkloniti null-material inicijalizaciju i audio-resource shutdown; potom Linux export i test van editora.
+## Sledeći zadaci — nastaviti ovde
+1. Fino doraditi kontakt stopala, težinu tela i položaj palca/šake tokom udaraca. Animacije jesu vizuelno pregledane, ali još nisu završni animatorski kvalitet.
+2. Na istom rigu dalje dorađivati idle/run/jump/fall/landing, fizički swing i wall-run. Svaki izmenjen klip ponovo importovati, proveriti prelaze i vizuelno pregledati tokom igranja.
+3. Povezati traversal i patrolu autorskom rutom/encounterom; ne povećavati grad ponovo.
+4. Otkloniti null-material/audio-resource dijagnostiku, pa Linux export.
 
-## Granice i važne putanje
-- Oba MCP-a koriste `addons/godot_mcp`; ne prepisivati ih međusobno. Satellite kopija: `../../work/SpiderCity-satellite-test`; server: `../../work/integrations/satellite/server`. U stvarnom projektu je samo hybrid.
-- Animacije i arena su prototip, ne 1:1 Insomniac materijal. Komercijalna prava za model/teksture nisu potvrđena. Prolaz testova nije potvrda završne igre.
-- Postojeći null-material i retained audio resource ostaju. Editor u izolovanom XDG profilu prijavljuje ObjectDB snapshot directory grešku; nije blokirala testove.
-- Detalji ovog nastavka: `docs/PATROL_BUILD.md`, `docs/GODOT_MCP_SETUP.md`. Stariji handoff dokumenti su istorijski; ovaj STATUS je poslednja kontrolna tačka.
+## Ograničenja
+Nema 1:1 Insomniac animacija. Posebni napadi još nemaju zasebno dorađene klipove; udarci proveravaju domet/zid, ne swept fist collider. Komercijalna prava za izvorne modele/teksture nisu potvrđena. Postojeći render/audio i Blender export warning-i ostaju. Ne regenerisati rig_contract.json da bi se sakrila nekompatibilnost.

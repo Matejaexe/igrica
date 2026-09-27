@@ -1,0 +1,20 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+Vulkan 1.4.351 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce RTX 3080
+ERROR: Can't create shader cache folder, no shader caching will happen: user://
+   at: RendererCompositorRD (servers/rendering/renderer_rd/renderer_compositor_rd.cpp:345)
+
+[CITY] 320 buildings | heights 8.0 / 34.8 / 190.0 m (min / median / max) | tiers { "medium": 136, "tall": 94, "low": 85, "landmark": 5 } | seed 6035393
+[CITY LIFE] 29742 detail instances / 418 batches; 280 pedestrians / 128 clear sidewalk loops
+ERROR: Parameter "material" is null.
+   at: material_casts_shadows (servers/rendering/renderer_rd/storage_rd/material_storage.cpp:2610)
+ERROR: Parameter "material" is null.
+   at: material_is_animated (servers/rendering/renderer_rd/storage_rd/material_storage.cpp:2597)
+ERROR: Parameter "material" is null.
+   at: material_get_instance_shader_parameters (servers/rendering/renderer_rd/storage_rd/material_storage.cpp:2641)
+ERROR: Parameter "material" is null.
+   at: material_update_dependency (servers/rendering/renderer_rd/storage_rd/material_storage.cpp:2653)
+SOLE_MIN=0.0 LEG_ERROR=0.00000013861002
+PASS: Pedestrian soles stay above pavement through full stride
+PASS: Both leg segments maintain length through full stride
+PASS: Walk to run preserves normalized stride phase
+CIVIL_ANIMATION_RESULT: 0 failures
