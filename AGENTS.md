@@ -85,7 +85,7 @@ Blender is the authoring source; edit the existing rig/actions in
 Preserve `spidey_run_from_reference_v1.blend`, bone names, hierarchy and rests.
 Use `tools/export_character_animations.py` for normal GLB export; do not rerun
 the procedural clip builder over artist edits. AnimationTree evaluates/blends
-in-place clips, then the swing modifier applies anchor-driven arm IK.
+in-place clips, then ground support corrects slow grounded poses, followed by anchor-driven swing arm IK.
 The gameplay controller alone moves the character. Validate imports, rig
 compatibility, transitions and gameplay; visually inspect every changed clip
 before calling it finished. Priorities: idle/run/sprint/jump/fall/landing,

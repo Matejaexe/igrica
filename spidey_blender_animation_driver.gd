@@ -1,6 +1,6 @@
 extends Node
 
-# AnimationTree owns base bone poses. The swing modifier runs after blending.
+# AnimationTree owns base poses; grounded leg support then swing arm IK follow.
 # AnimationPlayer stores imported clips only; gameplay owns physical movement.
 # Portable GLB preserves the source run and adds original traversal state clips.
 const RUN_ANIMATION_BASENAME = "RunFlow"
@@ -15,6 +15,7 @@ var current_state = ""
 var run_active = false
 var seen_attack_sequence = 0
 var clips: Dictionary = {}
+var ground_modifier: SkeletonModifier3D
 var swing_modifier: SkeletonModifier3D
 var trick_pivot: Node3D
 var ground_pose = ""
@@ -24,6 +25,7 @@ var seen_landing_sequence = 0
 const EXTRA_STATES = ["DodgeLeft", "DodgeRight", "PunchLeft", "Finisher","Vault","StartRun", "StopRun", "LandRun", "HardLand", "WallJumpLeft", "WallJumpRight", "AirJumpLeft", "AirJumpRight"]
 
 func reset_transition_state():
+    if is_instance_valid(ground_modifier): ground_modifier.reset_support()
     ground_pose = ""
     ground_pose_time = 0.0
     previous_speed = 0.0
@@ -71,6 +73,10 @@ func setup(target_animation_player: AnimationPlayer, target_player: Node, target
             push_error("Missing traversal animation: " + state)
     _build_animation_tree()
     if skeleton != null:
+        ground_modifier = preload("res://systems/ground_support_modifier.gd").new()
+        ground_modifier.player = player
+        ground_modifier.driver = self
+        skeleton.add_child(ground_modifier)
         swing_modifier = preload("res://systems/swing_pose_modifier.gd").new()
         swing_modifier.player = player
         skeleton.add_child(swing_modifier)

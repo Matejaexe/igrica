@@ -1,0 +1,27 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+PASS: Test capsule actually rests on a physics floor
+SOLE_ERROR Idle 0.00150722265244
+PASS: Both soles contact the floor in Idle
+SOLE_ERROR Punch 0.00001239776611
+PASS: Both soles contact the floor in Punch
+SOLE_ERROR PunchLeft 0.00001195073128
+PASS: Both soles contact the floor in PunchLeft
+SOLE_ERROR Finisher 0.00000005960464
+PASS: Both soles contact the floor in Finisher
+PASS: Support correction cannot move the capsule or change momentum
+PASS: Blender combat ankles stay planted throughout all three imported clips
+SLOPE_ERROR 0.00000007357448
+PASS: Two feet adapt independently to an actual 12-degree slope
+PASS: Starting to run fades pelvis offset while releasing leg IK
+PASS: Ground transition completely releases support within 0.1 seconds
+PASS: Jump releases ground support immediately
+PASS: No foot locking in Run
+PASS: No foot locking in Sprint
+PASS: No foot locking in SwingLeft
+PASS: No foot locking in WallRun
+PASS: No foot locking in DodgeLeft
+PASS: No foot locking in Vault
+PASS: Missing ground does not stretch legs across a ledge
+PASS: Respawn reset clears old support data
+GROUND_SUPPORT_RESULT: 0 failures; flat max error=0.00150722265244

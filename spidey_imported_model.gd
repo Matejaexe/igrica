@@ -1,7 +1,7 @@
 extends RefCounted
 
 # Portable export of the unchanged Blender source, with authored run and
-# prototype traversal clips. Rebuild with tools/build_traversal_clips.py.
+# authored traversal clips. Export with tools/export_character_animations.py.
 const MODEL_PATH: String = "res://assets/characters/spidey/spidey_traversal.glb"
 const ANIMATION_DRIVER_SCRIPT: Script = preload(
     "res://spidey_blender_animation_driver.gd"

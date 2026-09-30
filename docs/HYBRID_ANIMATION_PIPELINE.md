@@ -42,7 +42,7 @@ Inspect front, side, three-quarter, anticipation/contact/recovery and actual gam
 
 Walk, Run and Sprint share a normalized cycle clock, so changing speed preserves stride phase. Other action states use authored seconds. Direct transitions allow gameplay interruptions; landing and combat use shorter crossfades. Repeated same-state attacks reset the action, rather than freezing at its final pose. The implementation uses Godot's documented [state-machine playback](https://docs.godotengine.org/en/stable/classes/class_animationnodestatemachineplayback.html) and [custom animation timelines](https://docs.godotengine.org/en/stable/classes/class_animationnodeanimation.html).
 
-Order: controller state → AnimationTree base pose/blend → existing `swing_pose_modifier.gd` arm IK → skinning/final web-hand position. Swing/tuck selection still responds to measured velocity and anchor side; IK aims the actual arm chain toward the actual physics anchor. The web originates at the final corrected hand. This pass preserves the existing rope physics and visual root lean; it does not replace swinging with a fixed baked trajectory.
+Order: controller state → AnimationTree base pose/blend → `ground_support_modifier.gd` slow grounded support → existing `swing_pose_modifier.gd` arm IK → skinning/final web-hand position. Swing/tuck selection still responds to measured velocity and anchor side; IK aims the actual arm chain toward the actual physics anchor. The web originates at the final corrected hand. This pass preserves the existing rope physics and visual root lean; it does not replace swinging with a fixed baked trajectory.
 
 ## Changes in this checkpoint
 
@@ -60,3 +60,7 @@ Twelve three-angle stills and 162 rendered review frames cover the four changed/
 The motion is still a prototype. Further work is needed on thumb/palm contact, grounded foot planting, weight transfer, finisher differentiation and hit reactions. Most existing idle/jump/fall/landing/swing/wall-run clips were preserved, not newly polished or declared finished. Normal attacks still use the game's range/occlusion hit query, not a swept fist collider. Existing null-material initialization and retained audio-resource shutdown diagnostics remain. Blender exports also report existing armature-parent/texture-sampler warnings; imported skeleton checks and rendered skinning succeeded, but those warnings are not claimed fixed.
 
 Next: refine feet/weight transfer and combat contact presentation on this same rig, then connect traversal and patrol through an authored encounter route. No further city expansion is needed before that work.
+
+## Follow-up: grounded combat
+
+The next checkpoint refined the three combat leg poses and added limited grounded support after blending. See [GROUND_SUPPORT.md](GROUND_SUPPORT.md) for exact scope, preservation checks, test results and remaining thumb/locomotion work. The previous 111-check report above belongs to the original pipeline checkpoint.

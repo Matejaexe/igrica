@@ -1,7 +1,7 @@
 extends SkeletonModifier3D
 
-# Last bone writer, after AnimationPlayer. Only the selected arm is corrected;
-# body/legs retain the authored state clip. No rest/bind changes.
+# Last bone writer, after AnimationTree and ground support. Only the selected arm is corrected;
+# body/legs retain the previous modifiers' pose. No rest/bind changes.
 var player: CharacterBody3D
 var final_hand = Vector3.ZERO
 var hand_valid = false

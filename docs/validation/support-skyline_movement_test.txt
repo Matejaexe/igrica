@@ -1,0 +1,16 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+PASS: Glide steering remains consistent at 30/60/120 Hz
+PASS: Level glide loses altitude and speed
+PASS: Dive exchanges altitude for horizontal speed
+PASS: Deploying wings preserves incoming velocity and detaches web
+PASS: Glide owns the animation while airborne
+PASS: Folding wings preserves momentum
+PASS: Wings cannot launch from insufficient forward speed
+PASS: A real building anchor interrupts glide and engages the rope
+PASS: Low obstacle ahead is recognized for vault
+PASS: Tall building cannot trigger low-obstacle vault
+PASS: Buffered ground jump selects a vault pose
+PASS: Real capsule motion clears the low obstacle without teleporting
+PASS: Respawn clears glide and vault state
+SKYLINE_MOVEMENT_RESULT: 0 failures
